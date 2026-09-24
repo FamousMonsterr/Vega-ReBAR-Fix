@@ -74,7 +74,7 @@ AMD Adrenalin gates ReBAR (SAM) behind a whitelist: newer drivers read registry 
 | *Registry patch* red after an update | Press **Patch** again (or let the autostart guard do it) + reboot |
 | Flags wiped even between updates | Adrenalin rewrites them when its own settings change — keep the autostart guard enabled |
 | *BAR above 4 GB* red after reboot | Check BIOS: Above 4G Decoding = Enabled, Re-Size BAR = Enabled/Auto, CSM = Disabled |
-| BIOS is right, still red | The vBIOS may not advertise the PCIe ReBAR capability. Firmware-side fix: [ReBarUEFI](https://github.com/xCuri0/ReBarUEFI) (adds a ReBarDxe module to the board's UEFI; flashing a modded BIOS carries a brick risk — know what you are doing) |
+| BIOS is right, still red | The card's vBIOS likely lacks the PCIe ReBAR capability — stock Vega ROMs (e.g. `113-D0500350`) ship with the ReBAR capability flags **unset**, and GPU-Z shows "GPU hardware support: Unsupported". Two firmware-side routes: [ReBarUEFI](https://github.com/xCuri0/ReBarUEFI) (adds a ReBarDxe module to the board's UEFI; flashing a modded BIOS carries a brick risk) or a ReBAR-enabled vBIOS mod (Vega cards usually have a dual-BIOS switch) |
 | GPU-Z shows ReBAR but games unchanged | Normal on some titles; the win depends on the game's BAR utilization |
 
 ## Building from source
@@ -163,7 +163,7 @@ dotnet publish src/VegaReBARFix -c Release -r win-x64 --self-contained true ^
 | *Патч реестра* красный после обновления | Нажать **Пропатчить** снова (или дождаться стража) + перезагрузка |
 | Флаги слетают даже между обновлениями | Adrenalin переписывает их при смене собственных настроек — держите страж автозапуска включённым |
 | *BAR выше 4 ГБ* красный после перезагрузки | Проверить BIOS: Above 4G Decoding = Enabled, Re-Size BAR = Enabled/Auto, CSM = Disabled |
-| BIOS верный, всё равно красный | Возможно, vBIOS не анонсирует ReBAR-возможность PCIe. Решение на стороне прошивки: [ReBarUEFI](https://github.com/xCuri0/ReBarUEFI) (добавляет ReBarDxe в UEFI платы; прошивка модифицированного BIOS — риск брика, действуйте осознанно) |
+| BIOS верный, всё равно красный | Скорее всего, vBIOS карты не содержит ReBAR-возможность PCIe — стоковые ROM Vega (например, `113-D0500350`) идут с **невыставленными** флагами ReBAR, и GPU-Z показывает «GPU hardware support: Unsupported». Два пути на стороне прошивки: [ReBarUEFI](https://github.com/xCuri0/ReBarUEFI) (добавляет ReBarDxe в UEFI платы; прошивка модифицированного BIOS — риск брика) или vBIOS-мод с включённым ReBAR (у Vega обычно есть переключатель Dual BIOS) |
 | GPU-Z показывает ReBAR, а игры не изменились | Нормально: выигрыш зависит от того, использует ли игра BAR |
 
 ## Сборка из исходников

@@ -32,7 +32,7 @@ public sealed record BarStatus(ulong LargestAbove4Gb, ulong LargestBelow4Gb, str
         if (LargestAbove4Gb > 0)
             return $"не активен: BAR выше 4 ГБ всего {Fmt(LargestAbove4Gb)}";
         if (LargestBelow4Gb > 0)
-            return $"не активен: BAR {Fmt(LargestBelow4Gb)} ниже 4 ГБ — проверьте BIOS (Above 4G / Re-Size BAR)";
+            return $"не активен: BAR {Fmt(LargestBelow4Gb)} ниже 4 ГБ — BIOS или vBIOS без ReBAR (см. README)";
         return "не активен: BAR GPU не найден";
     }
 
