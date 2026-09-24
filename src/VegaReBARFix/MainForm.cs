@@ -6,8 +6,13 @@ using VegaReBARFix.Core;
 /// RDP_CnC-style dialog: a live diagnostics block (green/red status labels,
 /// refreshed on a timer), action buttons and autostart checkboxes.
 /// Reboot only ever happens on an explicit button press.
-/// The window is resizable and DPI-scaled; captions auto-size so nothing clips.
-/// UI language: English by default, Russian on Russian systems; switchable live.
+///
+/// DPI best practice for a hand-laid-out form: the process runs PerMonitorV2
+/// (csproj ApplicationHighDpiMode) and this form does its own scaling — every
+/// coordinate and size from the 96-DPI design grid is multiplied by
+/// DeviceDpi/96 in LayoutAll(). Text itself scales with DPI automatically
+/// (GDI renders point sizes at the monitor DPI), so only geometry is scaled
+/// here. Long status rows are two lines tall and wrap.
 /// </summary>
 public sealed class MainForm : Form
 {
@@ -23,36 +28,42 @@ public sealed class MainForm : Form
     private CheckBox _chkAutostart = null!, _chkAutoPatch = null!;
     private TextBox _log = null!;
 
+    /// <summary>Caption/value pairs with their 96-DPI design geometry (base Y, base height).</summary>
+    private (Label Cap, Label Val, int BaseY, int BaseH)[] _rows = null!;
+
     private BarStatus _bar = new(0, 0, null);
     private int _barAgeSeconds = int.MaxValue;   // hardware check runs on demand + every 30 s
     private bool _busy;
     private bool _suppressAutoEvents;
 
+    /// <summary>DPI scale factor relative to the 96-DPI design grid (1.5 at 150 %).</summary>
+    private float S => DeviceDpi / 96f;
+    private int R(float v) => (int)MathF.Round(v * S);
+
     public MainForm(bool fromAutostart)
     {
-        AutoScaleMode = AutoScaleMode.Dpi;
-        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.None;      // scaling is done manually in LayoutAll()
         FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(780, 570);
-        MinimumSize = new Size(700, 520);
+        ClientSize = new Size(R(800), R(600));
+        MinimumSize = new Size(R(700), R(540));
         Font = new Font("Segoe UI", 9f);
         Text = L10n.T("Vega-ReBAR-Fix — ReBAR (SAM) for AMD Vega/Polaris",
                       "Vega-ReBAR-Fix — ReBAR (SAM) для AMD Vega/Polaris");
 
-        _gbDiag = new GroupBox { Location = new Point(12, 12), Size = new Size(756, 160) };
-        _lblPatch  = AddDiagRow(_gbDiag, 26, out _capPatch);
-        _lblBar    = AddDiagRow(_gbDiag, 52, out _capBar);
-        _lblVbios  = AddDiagRow(_gbDiag, 78, out _capVbios);
-        _lblDriver = AddDiagRow(_gbDiag, 104, out _capDriver);
-        _lblKey    = AddDiagRow(_gbDiag, 130, out _capKey);
+        _gbDiag = new GroupBox();
+        _lblPatch  = AddDiagRow(out _capPatch,  baseY: 24, baseH: 18, wrap: false);
+        _lblBar    = AddDiagRow(out _capBar,    baseY: 56, baseH: 34, wrap: true);
+        _lblVbios  = AddDiagRow(out _capVbios,  baseY: 92, baseH: 34, wrap: true);
+        _lblDriver = AddDiagRow(out _capDriver, baseY: 128, baseH: 18, wrap: false);
+        _lblKey    = AddDiagRow(out _capKey,    baseY: 150, baseH: 18, wrap: false);
 
-        _gbActions = new GroupBox { Location = new Point(12, 180), Size = new Size(756, 64) };
-        _btnPatch = new Button { Location = new Point(14, 24), Size = new Size(118, 30) };
-        _btnUndo  = new Button { Location = new Point(140, 24), Size = new Size(98, 30) };
-        _btnRefresh = new Button { Location = new Point(246, 24), Size = new Size(98, 30) };
-        _btnReboot = new Button { Size = new Size(126, 30), Enabled = false };
+        _gbActions = new GroupBox();
+        _btnPatch = new Button();
+        _btnUndo  = new Button();
+        _btnRefresh = new Button();
+        _btnReboot = new Button { Enabled = false };
         _btnPatch.Click += (_, _) => RunGuarded(() =>
         {
             var (ok, msg) = Patcher.Patch();
@@ -81,11 +92,11 @@ public sealed class MainForm : Form
         };
         _gbActions.Controls.AddRange(new Control[] { _btnPatch, _btnUndo, _btnRefresh, _btnReboot });
 
-        _gbAuto = new GroupBox { Location = new Point(12, 252), Size = new Size(756, 84) };
-        _chkAutostart = new CheckBox { Location = new Point(14, 24), AutoSize = true };
+        _gbAuto = new GroupBox();
+        _chkAutostart = new CheckBox { Location = new Point(R(14), R(24)), AutoSize = true };
         _chkAutoPatch = new CheckBox
         {
-            Location = new Point(14, 50),
+            Location = new Point(R(14), R(50)),
             AutoSize = true,
             Checked = Autostart.AutoPatchEnabled
         };
@@ -111,8 +122,6 @@ public sealed class MainForm : Form
 
         _log = new TextBox
         {
-            Location = new Point(12, 344),
-            Size = new Size(756, 190),
             Multiline = true,
             ReadOnly = true,
             ScrollBars = ScrollBars.Vertical,
@@ -122,7 +131,6 @@ public sealed class MainForm : Form
         _lblFooter = new Label
         {
             AutoSize = false,
-            Size = new Size(560, 18),
             AutoEllipsis = true,
             ForeColor = SystemColors.GrayText,
             TextAlign = ContentAlignment.MiddleLeft
@@ -134,8 +142,7 @@ public sealed class MainForm : Form
         };
         _langCombo = new ComboBox
         {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Size = new Size(64, 23)
+            DropDownStyle = ComboBoxStyle.DropDownList
         };
         _langCombo.Items.AddRange(new object[] { "Eng", "Рус" });
         _langCombo.SelectedIndex = L10n.Lang == "ru" ? 1 : 0;
@@ -152,6 +159,7 @@ public sealed class MainForm : Form
 
         AcceptButton = _btnPatch;
         Resize += (_, _) => LayoutAll();
+        DpiChanged += (_, _) => LayoutAll();
 
         _timer.Tick += (_, _) =>
         {
@@ -213,52 +221,66 @@ public sealed class MainForm : Form
         return plus > 0 ? v[..plus] : v;
     }
 
-    /// <summary>Manual layout so every block tracks the resizable window.</summary>
+    /// <summary>
+    /// Manual DPI-aware layout: every geometry value below is expressed on the
+    /// 96-DPI design grid and multiplied by the current DPI scale factor.
+    /// </summary>
     private void LayoutAll()
     {
         int W = ClientSize.Width, H = ClientSize.Height;
-        int x = 12, w = W - 24;
+        int x = R(12), w = W - 2 * R(12);
 
-        _gbDiag.SetBounds(x, 12, w, 160);
-        _gbActions.SetBounds(x, _gbDiag.Bottom + 8, w, 64);
-        _gbAuto.SetBounds(x, _gbActions.Bottom + 8, w, 84);
-        _log.SetBounds(x, _gbAuto.Bottom + 8, w, Math.Max(60, H - _gbAuto.Bottom - 8 - 40));
+        _gbDiag.SetBounds(x, R(12), w, R(178));
+        _gbActions.SetBounds(x, _gbDiag.Bottom + R(8), w, R(64));
+        _gbAuto.SetBounds(x, _gbActions.Bottom + R(8), w, R(84));
+        _log.SetBounds(x, _gbAuto.Bottom + R(8), w, Math.Max(R(60), H - _gbAuto.Bottom - R(8) - R(42)));
 
-        _lblFooter.SetBounds(14, H - 30, W - 210, 18);
-        _langCombo.SetBounds(W - 78, H - 33, 64, 23);
-        _lblLang.SetBounds(W - 152, H - 30, 72, 18);
+        _lblFooter.SetBounds(R(14), H - R(32), W - R(220), R(18));
+        _langCombo.SetBounds(W - R(82), H - R(35), R(66), R(25));
+        _lblLang.SetBounds(W - R(160), H - R(32), R(74), R(18));
 
-        _btnReboot.Location = new Point(_gbActions.ClientSize.Width - 12 - _btnReboot.Width, 24);
+        _btnPatch.SetBounds(R(14), R(24), R(118), R(30));
+        _btnUndo.SetBounds(R(140), R(24), R(98), R(30));
+        _btnRefresh.SetBounds(R(246), R(24), R(98), R(30));
+        _btnReboot.Size = new Size(R(126), R(30));
+        _btnReboot.Location = new Point(_gbActions.ClientSize.Width - R(12) - _btnReboot.Width, R(24));
 
-        // Value labels start after the widest auto-sized caption, so rows align and never clip captions.
-        int valueX = 140;
-        foreach (var cap in new[] { _capPatch, _capBar, _capVbios, _capDriver, _capKey })
-            valueX = Math.Max(valueX, cap.Right + 10);
-        foreach (var val in new[] { _lblPatch, _lblBar, _lblVbios, _lblDriver, _lblKey })
-            val.SetBounds(valueX, val.Top, Math.Max(120, _gbDiag.ClientSize.Width - valueX - 12), 18);
+        _chkAutostart.Location = new Point(R(14), R(24));
+        _chkAutoPatch.Location = new Point(R(14), R(50));
+
+        // Value column starts after the widest auto-sized caption, so rows align
+        // and captions can never clip, at any DPI.
+        int valueX = R(140);
+        foreach (var row in _rows)
+            valueX = Math.Max(valueX, row.Cap.Right + R(10));
+        foreach (var row in _rows)
+            row.Val.SetBounds(valueX, R(row.BaseY),
+                Math.Max(R(120), _gbDiag.ClientSize.Width - valueX - R(12)), R(row.BaseH));
     }
 
-    /// <summary>Caption auto-sizes to its text; the value column starts at a shared X.</summary>
-    private Label AddDiagRow(GroupBox gb, int y, out Label caption)
+    /// <summary>Caption auto-sizes to its text; the value column starts at a shared X.
+    /// Long rows (wrap: true) are two lines tall and wrap instead of clipping.</summary>
+    private Label AddDiagRow(out Label caption, int baseY, int baseH, bool wrap)
     {
         caption = new Label
         {
-            Location = new Point(12, y),
             AutoSize = true,
             TextAlign = ContentAlignment.MiddleLeft
         };
         var val = new Label
         {
-            Location = new Point(140, y),
             AutoSize = false,
-            Size = new Size(gb.Width - 152, 18),
             TextAlign = ContentAlignment.MiddleLeft,
-            AutoEllipsis = true,
+            AutoEllipsis = !wrap,           // wrapping rows show their full text on two lines
             Text = "…"
         };
-        gb.Controls.Add(caption);
-        gb.Controls.Add(val);
+        gbAdd(caption);
+        gbAdd(val);
+        _rows = (_rows ?? Array.Empty<(Label, Label, int, int)>())
+            .Append((caption, val, baseY, baseH)).ToArray();
         return val;
+
+        void gbAdd(Control c) => _gbDiag.Controls.Add(c);
     }
 
     private static string AdapterTitle()
