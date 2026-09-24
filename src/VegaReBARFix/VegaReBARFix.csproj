@@ -10,8 +10,8 @@
     <AssemblyTitle>Vega-ReBAR-Fix</AssemblyTitle>
     <Product>Vega-ReBAR-Fix</Product>
     <Description>ReBAR (Smart Access Memory) registry guard for AMD GPUs: auto re-patch after Windows Update</Description>
-    <Version>1.2.0</Version>
-    <FileVersion>1.2.0.0</FileVersion>
+    <Version>1.3.0</Version>
+    <FileVersion>1.3.0.0</FileVersion>
     <ApplicationManifest>App.manifest</ApplicationManifest>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>

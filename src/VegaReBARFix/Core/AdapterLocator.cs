@@ -10,7 +10,8 @@ public sealed record AdapterInfo(
     string DriverDesc,
     string DriverVersion,
     string DriverDate,
-    ulong? VramBytes)
+    ulong? VramBytes,
+    string? BiosId)
 {
     public string ShortId
     {
@@ -63,6 +64,13 @@ public static class AdapterLocator
                 ulong? vram = null;
                 if (k.GetValue("HardwareInformation.qwMemorySize") is long q && q > 0) vram = (ulong)q;
 
+                string? bios = null;
+                if (k.GetValue("HardwareInformation.BiosString") is byte[] raw)
+                {
+                    bios = System.Text.Encoding.Unicode.GetString(raw).TrimEnd('\0').Trim();
+                    if (bios.Length == 0) bios = null;
+                }
+
                 result.Add(new AdapterInfo(
                     sub,
                     $@"{DisplayClassPath}\{sub}",
@@ -70,7 +78,8 @@ public static class AdapterLocator
                     desc,
                     k.GetValue("DriverVersion") as string ?? "",
                     k.GetValue("DriverDate") as string ?? "",
-                    vram));
+                    vram,
+                    bios));
             }
         }
         catch

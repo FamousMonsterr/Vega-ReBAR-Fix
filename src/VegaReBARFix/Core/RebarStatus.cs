@@ -45,6 +45,35 @@ public sealed record BarStatus(ulong LargestAbove4Gb, ulong LargestBelow4Gb, str
 }
 
 /// <summary>
+/// vBIOS verdict. The PCIe Resizable BAR capability itself lives in the card's
+/// ROM and is not readable from user mode, so the verdict is honest:
+/// a resized BAR (hardware check) proves support; AMD reference stock Vega 10
+/// ROMs (IDs "113-D05...") are known to ship without ReBAR flags; anything
+/// else stays undetermined until a reboot proves it one way or the other.
+/// </summary>
+public sealed record VbiosStatus(string BiosId, bool? Supported)
+{
+    public static VbiosStatus Create(string? biosId, bool barActive)
+    {
+        if (barActive) return new VbiosStatus(biosId ?? "—", true);
+        if (!string.IsNullOrEmpty(biosId) && biosId.StartsWith("113-D05", StringComparison.OrdinalIgnoreCase))
+            return new VbiosStatus(biosId, false);
+        return new VbiosStatus(biosId ?? "—", null);
+    }
+
+    public string Describe() => Supported switch
+    {
+        true => $"{BiosId} — {L10n.T("supports ReBAR", "поддерживает ReBAR")}",
+        false => $"{BiosId} — {L10n.T(
+            "no ReBAR (stock ROM): the patch will not take effect until the card runs a ReBAR-capable BIOS (switch via Dual BIOS) or ReBarUEFI is added to the board",
+            "без ReBAR (стоковый ROM): патч не сработает, пока не переведёте карту на BIOS с ReBAR (второй чип Dual BIOS) или не добавите ReBarUEFI")}",
+        _ => $"{BiosId} — {L10n.T(
+            "not determined: BAR not resized — check the board BIOS; if it is enabled, a vBIOS with ReBAR is required",
+            "не определён: BAR не ресайзнут — проверьте BIOS платы; если включён, нужен vBIOS с ReBAR")}"
+    };
+}
+
+/// <summary>
 /// Reads ReBAR state. Hardware side is resolved through WMI
 /// (Win32_PnPAllocatedResource → Win32_DeviceMemoryAddress) the same way
 /// Device Manager resolves "Large Memory Range" assignments.

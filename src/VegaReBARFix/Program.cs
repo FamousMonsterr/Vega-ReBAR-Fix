@@ -64,6 +64,8 @@ internal static class Program
                 : L10n.T("patch MISSING — ", "патч НЕТ — ") + reg.Describe();
             Console.WriteLine($"{L10n.T("Registry:", "Реестр:")}  {regLine}");
             Console.WriteLine($"{L10n.T("BAR:", "BAR:")}     {bar.Describe()}");
+            var vbios = VbiosStatus.Create(best.BiosId, bar.Active);
+            Console.WriteLine($"{L10n.T("vBIOS:", "vBIOS:")}   {vbios.Describe()}");
             Console.WriteLine($"{L10n.T("Driver:", "Драйвер:")} {best.DriverVersion} ({best.DriverDate})");
             Console.WriteLine(bar.Active && reg.Patched
                 ? L10n.T("RESULT: ReBAR is active.", "ИТОГ: ReBAR активен.")
