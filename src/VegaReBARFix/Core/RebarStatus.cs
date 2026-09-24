@@ -11,11 +11,11 @@ public sealed record RegistryStatus(int? Mode, int? Support, int? Legacy)
 
     public string Describe()
     {
-        if (Patched) return "включен";
-        return $"слетел: Mode={Show(Mode)}, Support={Show(Support)}, Legacy={Show(Legacy)}";
+        if (Patched) return L10n.T("enabled", "включен");
+        return $"{L10n.T("wiped:", "слетел:")} Mode={Show(Mode)}, Support={Show(Support)}, Legacy={Show(Legacy)}";
     }
 
-    private static string Show(int? v) => v?.ToString() ?? "нет";
+    private static string Show(int? v) => v?.ToString() ?? L10n.T("absent", "нет");
 }
 
 /// <summary>Largest BAR seen for the GPU, split by the 4 GiB boundary.</summary>
@@ -27,19 +27,21 @@ public sealed record BarStatus(ulong LargestAbove4Gb, ulong LargestBelow4Gb, str
 
     public string Describe()
     {
-        if (Error is not null) return "неизвестно (" + Error + ")";
-        if (Active) return $"активен: {Fmt(LargestAbove4Gb)} выше 4 ГБ";
+        if (Error is not null) return L10n.T("unknown (", "неизвестно (") + Error + ")";
+        if (Active) return $"{L10n.T("active:", "активен:")} {Fmt(LargestAbove4Gb)} {L10n.T("above 4 GB", "выше 4 ГБ")}";
         if (LargestAbove4Gb > 0)
-            return $"не активен: BAR выше 4 ГБ всего {Fmt(LargestAbove4Gb)}";
+            return $"{L10n.T("not active: BAR above 4 GB is only ", "не активен: BAR выше 4 ГБ всего ")}{Fmt(LargestAbove4Gb)}";
         if (LargestBelow4Gb > 0)
-            return $"не активен: BAR {Fmt(LargestBelow4Gb)} ниже 4 ГБ — BIOS или vBIOS без ReBAR (см. README)";
-        return "не активен: BAR GPU не найден";
+            return $"{L10n.T("not active: BAR ", "не активен: BAR ")}{Fmt(LargestBelow4Gb)} " +
+                   L10n.T("below 4 GB — check BIOS or card vBIOS (see README)",
+                          "ниже 4 ГБ — BIOS или vBIOS без ReBAR (см. README)");
+        return L10n.T("not active: no GPU BAR found", "не активен: BAR GPU не найден");
     }
 
     public static string Fmt(ulong bytes) =>
         bytes % (1024UL * 1024 * 1024) == 0
-            ? $"{bytes / (1024UL * 1024 * 1024)} ГБ"
-            : $"{bytes / (1024UL * 1024)} МБ";
+            ? $"{bytes / (1024UL * 1024 * 1024)} {L10n.T("GB", "ГБ")}"
+            : $"{bytes / (1024UL * 1024)} {L10n.T("MB", "МБ")}";
 }
 
 /// <summary>

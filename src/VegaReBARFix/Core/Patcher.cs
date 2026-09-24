@@ -17,20 +17,26 @@ public static class Patcher
     public static (bool Ok, string Message) Patch()
     {
         var best = AdapterLocator.LocateBest();
-        if (best is null) return (false, "Ключ адаптера AMD не найден — драйвер установлен?");
+        if (best is null)
+            return (false, L10n.T("AMD adapter key not found — is the driver installed?",
+                                  "Ключ адаптера AMD не найден — драйвер установлен?"));
 
         SaveBackup(best.KeyName);
         using var k = Registry.LocalMachine.OpenSubKey(best.RegistryPath, writable: true);
-        if (k is null) return (false, "Не удалось открыть ключ на запись (нет прав администратора?)");
+        if (k is null)
+            return (false, L10n.T("Cannot open the key for writing (no administrator rights?)",
+                                  "Не удалось открыть ключ на запись (нет прав администратора?)"));
 
         k.SetValue("KMD_RebarControlMode", 1, RegistryValueKind.DWord);
         k.SetValue("KMD_RebarControlSupport", 1, RegistryValueKind.DWord);
         k.SetValue("KMD_EnableReBarForLegacyASIC", 1, RegistryValueKind.DWord);
 
         var st = RebarStatus.ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + best.RegistryPath);
-        return st.Patched
-            ? (true, $"Патч применён (ключ {best.KeyName}): Mode=1, Support=1, LegacyASIC=1. Требуется перезагрузка.")
-            : (false, "Запись не подтвердилась перечитыванием: " + st.Describe());
+        if (st.Patched)
+            return (true, L10n.T(
+                $"Patch applied (key {best.KeyName}): Mode=1, Support=1, LegacyASIC=1. A reboot is required.",
+                $"Патч применён (ключ {best.KeyName}): Mode=1, Support=1, LegacyASIC=1. Требуется перезагрузка."));
+        return (false, L10n.T("Write not confirmed on re-read: ", "Запись не подтвердилась перечитыванием: ") + st.Describe());
     }
 
     public static (bool Ok, string Message) Undo()
@@ -42,7 +48,8 @@ public static class Patcher
                 return UndoKey(saved, b);
 
         var best = AdapterLocator.LocateBest();
-        if (best is null) return (false, "Ключ адаптера AMD не найден.");
+        if (best is null)
+            return (false, L10n.T("AMD adapter key not found.", "Ключ адаптера AMD не найден."));
         return UndoKey(best.KeyName, null);
     }
 
@@ -50,7 +57,9 @@ public static class Patcher
     {
         var path = $@"SYSTEM\CurrentControlSet\Control\Class\{{4d36e968-e325-11ce-bfc1-08002be10318}}\{keyName}";
         using var k = Registry.LocalMachine.OpenSubKey(path, writable: true);
-        if (k is null) return (false, "Не удалось открыть ключ на запись (нет прав администратора?)");
+        if (k is null)
+            return (false, L10n.T("Cannot open the key for writing (no administrator rights?)",
+                                  "Не удалось открыть ключ на запись (нет прав администратора?)"));
 
         // -1 means the value did not exist before the patch -> delete it now.
         var mode = backup?.GetValue("Mode") as int? ?? 0;
@@ -63,7 +72,8 @@ public static class Patcher
         RestoreOrDelete(k, "KMD_RebarControlSupport", support);
         RestoreOrDelete(k, "KMD_EnableReBarForLegacyASIC", legacy);
 
-        return (true, $"Откат выполнен (ключ {keyName}). Требуется перезагрузка.");
+        return (true, L10n.T($"Undo completed (key {keyName}). A reboot is required.",
+                             $"Откат выполнен (ключ {keyName}). Требуется перезагрузка."));
     }
 
     private static void RestoreOrDelete(RegistryKey k, string name, int original)

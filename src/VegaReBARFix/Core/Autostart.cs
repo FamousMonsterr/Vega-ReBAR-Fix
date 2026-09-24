@@ -35,17 +35,22 @@ public static class Autostart
         var tr = $"\\\"{exePath}\\\" -autostart";
         var rc = Run($"/Create /F /TN {TaskName} /TR \"{tr}\" /SC ONLOGON /RL HIGHEST");
         return rc == 0
-            ? (true, "Автозапуск включён: задача " + TaskName + " в Планировщике заданий.")
-            : (false, $"Не удалось создать задачу Планировщика (schtasks, код {rc}). Запустите утилиту от администратора.");
+            ? (true, L10n.T($"Autostart enabled: Task Scheduler job {TaskName}.",
+                            $"Автозапуск включён: задача {TaskName} в Планировщике заданий."))
+            : (false, L10n.T($"Failed to create the Task Scheduler job (schtasks, code {rc}). Run the tool as administrator.",
+                             $"Не удалось создать задачу Планировщика (schtasks, код {rc}). Запустите утилиту от администратора."));
     }
 
     public static (bool Ok, string Message) Disable()
     {
-        if (!TaskExists()) return (true, "Автозапуск уже выключен.");
+        if (!TaskExists())
+            return (true, L10n.T("Autostart is already off.", "Автозапуск уже выключен."));
         var rc = Run($"/Delete /F /TN {TaskName}");
         return rc == 0
-            ? (true, "Автозапуск выключен: задача " + TaskName + " удалена.")
-            : (false, $"Не удалось удалить задачу Планировщика (код {rc}).");
+            ? (true, L10n.T($"Autostart disabled: Task Scheduler job {TaskName} deleted.",
+                            $"Автозапуск выключен: задача {TaskName} удалена."))
+            : (false, L10n.T($"Failed to delete the Task Scheduler job (code {rc}).",
+                             $"Не удалось удалить задачу Планировщика (код {rc})."));
     }
 
     /// <summary>schtasks.exe, hidden, returns process exit code.</summary>

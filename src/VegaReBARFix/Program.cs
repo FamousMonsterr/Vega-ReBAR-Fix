@@ -15,6 +15,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        L10n.Initialize();
         ApplicationConfiguration.Initialize();
 
         string mode = args.Select(Norm).FirstOrDefault(m => m is "-status" or "-patch" or "-undo" or "-autostart") ?? "";
@@ -27,8 +28,8 @@ internal static class Program
         return mode switch
         {
             "-status" => CliStatus(),
-            "-patch" => ElevatedAction(args, doWork: () => Patcher.Patch(), title: "Патч"),
-            "-undo" => ElevatedAction(args, doWork: () => Patcher.Undo(), title: "Откат"),
+            "-patch" => ElevatedAction(args, doWork: () => Patcher.Patch(), title: () => L10n.T("Patch", "Патч")),
+            "-undo" => ElevatedAction(args, doWork: () => Patcher.Undo(), title: () => L10n.T("Undo", "Откат")),
             "-autostart" => AutostartRun(),
             _ => RunGui(args)
         };
@@ -46,18 +47,27 @@ internal static class Program
             var best = AdapterLocator.LocateBest();
             if (best is null)
             {
-                Console.WriteLine("AMD адаптер не найден.");
+                Console.WriteLine(L10n.T("AMD adapter not found.", "AMD адаптер не найден."));
                 return 4;
             }
             var reg = RebarStatus.ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + best.RegistryPath);
             var bar = RebarStatus.ReadBars();
 
             var all = AdapterLocator.FindAllAmdAdapters();
-            Console.WriteLine($"Ключ:    {best.KeyName}  [{best.ShortId}]{(all.Count > 1 ? $"  (всего AMD-адаптеров: {all.Count}, выбрана карта с максимальной VRAM)" : "")}");
-            Console.WriteLine($"Реестр:  патч {(reg.Patched ? "ЕСТЬ" : "НЕТ")} — {reg.Describe()}");
-            Console.WriteLine($"BAR:     {bar.Describe()}");
-            Console.WriteLine($"Драйвер: {best.DriverVersion} ({best.DriverDate})");
-            Console.WriteLine(bar.Active && reg.Patched ? "ИТОГ: ReBAR активен." : "ИТОГ: ReBAR не активен полностью.");
+            var multi = all.Count > 1
+                ? L10n.T($"  (AMD adapters found: {all.Count}, the one with the max VRAM selected)",
+                         $"  (всего AMD-адаптеров: {all.Count}, выбрана карта с максимальной VRAM)")
+                : "";
+            Console.WriteLine($"{L10n.T("Key:", "Ключ:")}      {best.KeyName}  [{best.ShortId}]{multi}");
+            var regLine = reg.Patched
+                ? L10n.T("patch PRESENT — enabled", "патч ЕСТЬ — включен")
+                : L10n.T("patch MISSING — ", "патч НЕТ — ") + reg.Describe();
+            Console.WriteLine($"{L10n.T("Registry:", "Реестр:")}  {regLine}");
+            Console.WriteLine($"{L10n.T("BAR:", "BAR:")}     {bar.Describe()}");
+            Console.WriteLine($"{L10n.T("Driver:", "Драйвер:")} {best.DriverVersion} ({best.DriverDate})");
+            Console.WriteLine(bar.Active && reg.Patched
+                ? L10n.T("RESULT: ReBAR is active.", "ИТОГ: ReBAR активен.")
+                : L10n.T("RESULT: ReBAR is not fully active.", "ИТОГ: ReBAR не активен полностью."));
             return reg.Patched ? 0 : 1;
         }
         finally
@@ -67,7 +77,7 @@ internal static class Program
         }
     }
 
-    private static int ElevatedAction(string[] args, Func<(bool Ok, string Message)> doWork, string title)
+    private static int ElevatedAction(string[] args, Func<(bool Ok, string Message)> doWork, Func<string> title)
     {
         if (!IsElevated())
         {
@@ -90,7 +100,7 @@ internal static class Program
 
         var (ok, message) = doWork();
         if (args.Contains("-child", StringComparer.OrdinalIgnoreCase))
-            MessageBox.Show(message, "Vega-ReBAR-Fix: " + title, MessageBoxButtons.OK,
+            MessageBox.Show(message, "Vega-ReBAR-Fix: " + title(), MessageBoxButtons.OK,
                 ok ? MessageBoxIcon.Information : MessageBoxIcon.Error);
         else
         {

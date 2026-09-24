@@ -6,6 +6,7 @@ using VegaReBARFix.Core;
 /// RDP_CnC-style dialog: a live diagnostics block (green/red status labels,
 /// refreshed on a timer), action buttons and autostart checkboxes.
 /// Reboot only ever happens on an explicit button press.
+/// UI language: English by default, Russian on Russian systems; switchable live.
 /// </summary>
 public sealed class MainForm : Form
 {
@@ -14,26 +15,23 @@ public sealed class MainForm : Form
 
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 2000 };
 
-    private Label _lblPatch = null!;
-    private Label _lblBar = null!;
-    private Label _lblDriver = null!;
-    private Label _lblKey = null!;
+    private GroupBox _gbDiag = null!, _gbActions = null!, _gbAuto = null!;
+    private Label _capPatch = null!, _capBar = null!, _capDriver = null!, _capKey = null!;
+    private Label _lblPatch = null!, _lblBar = null!, _lblDriver = null!, _lblKey = null!;
+    private Label _lblFooter = null!;
+    private ComboBox _langCombo = null!;
 
-    private Button _btnPatch = null!;
-    private Button _btnUndo = null!;
-    private Button _btnReboot = null!;
-    private CheckBox _chkAutostart = null!;
-    private CheckBox _chkAutoPatch = null!;
+    private Button _btnPatch = null!, _btnUndo = null!, _btnRefresh = null!, _btnReboot = null!;
+    private CheckBox _chkAutostart = null!, _chkAutoPatch = null!;
     private TextBox _log = null!;
 
-    private BarStatus _bar = new(0, 0, "не проверялось");
+    private BarStatus _bar = new(0, 0, null);
     private int _barAgeSeconds = int.MaxValue;   // hardware check runs on demand + every 30 s
     private bool _busy;
     private bool _suppressAutoEvents;
 
     public MainForm(bool fromAutostart)
     {
-        Text = "Vega-ReBAR-Fix — ReBAR (SAM) для AMD Vega/Polaris";
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -41,33 +39,17 @@ public sealed class MainForm : Form
         ClientSize = new Size(640, 470);
         Font = new Font("Segoe UI", 9f);
 
-        var gbDiag = new GroupBox
-        {
-            Text = "Диагностика",
-            Location = new Point(12, 12),
-            Size = new Size(616, 132)
-        };
-        _lblPatch  = AddDiagRow(gbDiag, "Патч реестра:", 28);
-        _lblBar    = AddDiagRow(gbDiag, "BAR выше 4 ГБ:", 54);
-        _lblDriver = AddDiagRow(gbDiag, "Драйвер:", 80);
-        _lblKey    = AddDiagRow(gbDiag, "Ключ адаптера:", 104);
+        _gbDiag = new GroupBox { Location = new Point(12, 12), Size = new Size(616, 132) };
+        _lblPatch  = AddDiagRow(_gbDiag, 28, out _capPatch);
+        _lblBar    = AddDiagRow(_gbDiag, 54, out _capBar);
+        _lblDriver = AddDiagRow(_gbDiag, 80, out _capDriver);
+        _lblKey    = AddDiagRow(_gbDiag, 104, out _capKey);
 
-        var gbActions = new GroupBox
-        {
-            Text = "Действия",
-            Location = new Point(12, 150),
-            Size = new Size(616, 64)
-        };
-        _btnPatch = new Button { Text = "Пропатчить", Location = new Point(14, 24), Size = new Size(118, 30) };
-        _btnUndo  = new Button { Text = "Откатить", Location = new Point(140, 24), Size = new Size(98, 30) };
-        var btnRefresh = new Button { Text = "Обновить", Location = new Point(246, 24), Size = new Size(98, 30) };
-        _btnReboot = new Button
-        {
-            Text = "Перезагрузить ПК",
-            Location = new Point(476, 24),
-            Size = new Size(126, 30),
-            Enabled = false
-        };
+        _gbActions = new GroupBox { Location = new Point(12, 150), Size = new Size(616, 64) };
+        _btnPatch = new Button { Location = new Point(14, 24), Size = new Size(118, 30) };
+        _btnUndo  = new Button { Location = new Point(140, 24), Size = new Size(98, 30) };
+        _btnRefresh = new Button { Location = new Point(246, 24), Size = new Size(98, 30) };
+        _btnReboot = new Button { Location = new Point(476, 24), Size = new Size(126, 30), Enabled = false };
         _btnPatch.Click += (_, _) => RunGuarded(() =>
         {
             var (ok, msg) = Patcher.Patch();
@@ -80,35 +62,26 @@ public sealed class MainForm : Form
             Log(msg);
             if (ok) _btnReboot.Enabled = true;
         });
-        btnRefresh.Click += (_, _) => { _barAgeSeconds = int.MaxValue; RefreshStatus(forceBar: true); Log("Статус обновлён."); };
+        _btnRefresh.Click += (_, _) => { _barAgeSeconds = int.MaxValue; RefreshStatus(forceBar: true); Log(L10n.T("Status refreshed.", "Статус обновлён.")); };
         _btnReboot.Click += (_, _) =>
         {
             if (MessageBox.Show(this,
-                    "Перезагрузить компьютер сейчас?\n\nРеестр патчится до перезагрузки; ReBAR заработает после неё.",
-                    "Перезагрузка", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                    L10n.T("Reboot the computer now?\n\nThe registry is patched before the reboot; ReBAR takes effect after it.",
+                           "Перезагрузить компьютер сейчас?\n\nРеестр патчится до перезагрузки; ReBAR заработает после неё."),
+                    L10n.T("Reboot", "Перезагрузка"),
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             try
             {
-                System.Diagnostics.Process.Start("shutdown.exe", "/r /t 5 /c \"Vega-ReBAR-Fix: применение ReBAR\"");
+                System.Diagnostics.Process.Start("shutdown.exe", "/r /t 5 /c \"Vega-ReBAR-Fix\"");
             }
-            catch (Exception ex) { Log("Не удалось запустить перезагрузку: " + ex.Message); }
+            catch (Exception ex) { Log(L10n.T("Failed to start reboot: ", "Не удалось запустить перезагрузку: ") + ex.Message); }
         };
-        gbActions.Controls.AddRange(new Control[] { _btnPatch, _btnUndo, btnRefresh, _btnReboot });
+        _gbActions.Controls.AddRange(new Control[] { _btnPatch, _btnUndo, _btnRefresh, _btnReboot });
 
-        var gbAuto = new GroupBox
-        {
-            Text = "Автозапуск",
-            Location = new Point(12, 220),
-            Size = new Size(616, 84)
-        };
-        _chkAutostart = new CheckBox
-        {
-            Text = "Проверять при входе в Windows (Планировщик, без UAC)",
-            Location = new Point(14, 24),
-            AutoSize = true
-        };
+        _gbAuto = new GroupBox { Location = new Point(12, 220), Size = new Size(616, 84) };
+        _chkAutostart = new CheckBox { Location = new Point(14, 24), AutoSize = true };
         _chkAutoPatch = new CheckBox
         {
-            Text = "Автоматически патчить, если слетело после обновления",
             Location = new Point(14, 50),
             AutoSize = true,
             Checked = Autostart.AutoPatchEnabled
@@ -131,7 +104,7 @@ public sealed class MainForm : Form
             });
         };
         _chkAutoPatch.CheckedChanged += (_, _) => Autostart.AutoPatchEnabled = _chkAutoPatch.Checked;
-        gbAuto.Controls.AddRange(new Control[] { _chkAutostart, _chkAutoPatch });
+        _gbAuto.Controls.AddRange(new Control[] { _chkAutostart, _chkAutoPatch });
 
         _log = new TextBox
         {
@@ -143,15 +116,42 @@ public sealed class MainForm : Form
             BackColor = SystemColors.Window
         };
 
-        var lblFooter = new Label
+        _lblFooter = new Label
         {
-            Text = "Vega-ReBAR-Fix v" + Application.ProductVersion + "  •  " + AdapterTitle(),
-            Location = new Point(14, 434),
+            Location = new Point(14, 436),
+            AutoSize = false,
+            Size = new Size(486, 18),
+            AutoEllipsis = true,
+            ForeColor = SystemColors.GrayText,
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        var lblLang = new Label
+        {
+            Text = L10n.T("Language:", "Язык:"),
+            Location = new Point(506, 438),
             AutoSize = true,
             ForeColor = SystemColors.GrayText
         };
+        _langCombo = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Location = new Point(566, 434),
+            Size = new Size(62, 23),
+            ItemHeight = 15
+        };
+        _langCombo.Items.AddRange(new object[] { "Eng", "Рус" });
+        _langCombo.SelectedIndex = L10n.Lang == "ru" ? 1 : 0;
+        _langCombo.SelectedIndexChanged += (_, _) =>
+        {
+            var lang = _langCombo.SelectedIndex == 1 ? "ru" : "en";
+            if (lang == L10n.Lang) return;
+            L10n.Set(lang);
+            ApplyLanguage();
+            Log(L10n.T("Language switched to English.", "Язык переключён на русский."));
+        };
 
-        Controls.AddRange(new Control[] { gbDiag, gbActions, gbAuto, _log, lblFooter });
+        Controls.AddRange(new Control[] { _gbDiag, _gbActions, _gbAuto, _log, _lblFooter, lblLang, _langCombo });
 
         AcceptButton = _btnPatch;
 
@@ -164,21 +164,51 @@ public sealed class MainForm : Form
 
         Shown += (_, _) =>
         {
-            _chkAutostart.Checked = Autostart.TaskExists();  // fires handler only on change
+            _suppressAutoEvents = true;
+            _chkAutostart.Checked = Autostart.TaskExists();  // reflect reality, do not recreate the job
+            _suppressAutoEvents = false;
             RefreshStatus(forceBar: true);
             var adapters = AdapterLocator.FindAllAmdAdapters();
             if (adapters.Count > 1)
-                Log($"Найдено {adapters.Count} адаптеров AMD; патч применяется к «{AdapterLocator.LocateBest()?.DriverDesc}» (наибольший объём VRAM).");
-            if (fromAutostart) Log("Запущено автоматически: слетевший патч восстановлен, нужна перезагрузка.");
+                Log(L10n.T(
+                    $"Found {adapters.Count} AMD adapters; patching '{AdapterLocator.LocateBest()?.DriverDesc}' (the one with the largest VRAM).",
+                    $"Найдено {adapters.Count} адаптеров AMD; патч применяется к «{AdapterLocator.LocateBest()?.DriverDesc}» (наибольший объём VRAM)."));
+            if (fromAutostart)
+                Log(L10n.T("Started automatically: wiped patch restored, a reboot is required.",
+                           "Запущено автоматически: слетевший патч восстановлен, нужна перезагрузка."));
         };
+
+        ApplyLanguage();
+    }
+
+    private void ApplyLanguage()
+    {
+        Text = L10n.T("Vega-ReBAR-Fix — ReBAR (SAM) for AMD Vega/Polaris",
+                      "Vega-ReBAR-Fix — ReBAR (SAM) для AMD Vega/Polaris");
+        _gbDiag.Text = L10n.T("Diagnostics", "Диагностика");
+        _capPatch.Text = L10n.T("Registry patch:", "Патч реестра:");
+        _capBar.Text = L10n.T("BAR above 4 GB:", "BAR выше 4 ГБ:");
+        _capDriver.Text = L10n.T("Driver:", "Драйвер:");
+        _capKey.Text = L10n.T("Adapter key:", "Ключ адаптера:");
+        _gbActions.Text = L10n.T("Actions", "Действия");
+        _btnPatch.Text = L10n.T("Patch", "Пропатчить");
+        _btnUndo.Text = L10n.T("Undo", "Откатить");
+        _btnRefresh.Text = L10n.T("Refresh", "Обновить");
+        _btnReboot.Text = L10n.T("Reboot PC", "Перезагрузить ПК");
+        _gbAuto.Text = L10n.T("Autostart", "Автозапуск");
+        _chkAutostart.Text = L10n.T("Check at Windows sign-in (Task Scheduler, no UAC)",
+                                    "Проверять при входе в Windows (Планировщик, без UAC)");
+        _chkAutoPatch.Text = L10n.T("Patch automatically if wiped after an update",
+                                    "Автоматически патчить, если слетело после обновления");
+        _lblFooter.Text = "Vega-ReBAR-Fix v" + Application.ProductVersion + "  •  " + AdapterTitle();
+        RefreshStatus(forceBar: false);
     }
 
     /// <summary>Caption in a fixed-width left column, value starting at a shared X so rows align.</summary>
-    private Label AddDiagRow(GroupBox gb, string caption, int y)
+    private Label AddDiagRow(GroupBox gb, int y, out Label caption)
     {
-        var cap = new Label
+        caption = new Label
         {
-            Text = caption,
             Location = new Point(12, y),
             AutoSize = false,
             Size = new Size(CaptionWidth, 18),
@@ -193,7 +223,7 @@ public sealed class MainForm : Form
             AutoEllipsis = true,
             Text = "…"
         };
-        gb.Controls.Add(cap);
+        gb.Controls.Add(caption);
         gb.Controls.Add(val);
         return val;
     }
@@ -202,8 +232,8 @@ public sealed class MainForm : Form
     {
         var best = AdapterLocator.LocateBest();
         return best is null
-            ? "AMD адаптер не найден"
-            : $"{best.DriverDesc} [{best.ShortId}] (ключ {best.KeyName})";
+            ? L10n.T("AMD adapter not found", "AMD адаптер не найден")
+            : $"{best.DriverDesc} [{best.ShortId}] ({L10n.T("key", "ключ")} {best.KeyName})";
     }
 
     private void RefreshStatus(bool forceBar)
@@ -217,7 +247,7 @@ public sealed class MainForm : Form
                 ? new RegistryStatus(null, null, null)
                 : RebarStatus.ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + best.RegistryPath);
 
-            _lblPatch.Text = best is null ? "AMD адаптер не найден" : reg.Describe();
+            _lblPatch.Text = best is null ? L10n.T("AMD adapter not found", "AMD адаптер не найден") : reg.Describe();
             _lblPatch.ForeColor = reg.Patched ? Good : Bad;
 
             if (forceBar) { _bar = RebarStatus.ReadBars(); _barAgeSeconds = 0; }
@@ -238,7 +268,7 @@ public sealed class MainForm : Form
     private void RunGuarded(Action action)
     {
         try { action(); }
-        catch (Exception ex) { Log("Ошибка: " + ex.Message); }
+        catch (Exception ex) { Log(L10n.T("Error: ", "Ошибка: ") + ex.Message); }
         RefreshStatus(forceBar: false);
     }
 
