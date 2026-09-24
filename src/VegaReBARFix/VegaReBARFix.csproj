@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>VegaReBARFix</AssemblyName>
+    <AssemblyTitle>Vega-ReBAR-Fix</AssemblyTitle>
+    <Product>Vega-ReBAR-Fix</Product>
+    <Description>ReBAR (Smart Access Memory) registry guard for AMD GPUs: auto re-patch after Windows Update</Description>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <ApplicationManifest>App.manifest</ApplicationManifest>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="10.0.*" />
+  </ItemGroup>
+
+</Project>

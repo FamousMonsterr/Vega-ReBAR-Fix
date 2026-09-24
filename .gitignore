@@ -1,0 +1,14 @@
+# build artifacts
+bin/
+obj/
+dist/
+
+# local registry backups (never publish these)
+backup/
+*.reg
+
+# IDE
+.vs/
+.idea/
+*.user
+*.zip
