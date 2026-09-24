@@ -3,16 +3,19 @@
 Context for AI agents working in this repo.
 
 ## What this is
-Windows utility (C# / .NET 10 WinForms, single project) that patches two AMD driver
-registry values — `KMD_RebarControlMode` and `KMD_RebarControlSupport` (both DWORD `1`)
-— on the display adapter class key
+Windows utility (C# / .NET 10 WinForms, single project) that patches the AMD driver
+registry trio — `KMD_RebarControlMode`, `KMD_RebarControlSupport`,
+`KMD_EnableReBarForLegacyASIC` (all DWORD `1`) — on the display adapter class key
 `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\00NN`,
 where `00NN` is auto-discovered (never hard-coded), and guards them against being wiped
-by Windows Update via a Task Scheduler job at logon.
+by Windows Update via a Task Scheduler job at logon. Without the LegacyASIC flag the
+driver ignores the other two on Vega/Polaris (the Guru3D unlock trio).
 
 ## Key invariants (do not break)
 - The adapter key number is **always discovered** in `Core/AdapterLocator.cs`, never hard-coded.
   Key `0000` is often the Microsoft RDP indirect display adapter — filter it out.
+- **Several AMD adapters** may exist (Vega dGPU + APU iGPU): the patch target is always
+  the adapter with the **largest `HardwareInformation.qwMemorySize`** (dedicated VRAM).
 - **Reboot must never be triggered automatically.** Only the explicit «Перезагрузить ПК»
   button (`shutdown /r`) reboots the machine. The autostart guard patches and shows a window.
 - Before any write, `Core/Patcher.cs` stores original values in `HKCU\Software\VegaReBARFix\Backup`

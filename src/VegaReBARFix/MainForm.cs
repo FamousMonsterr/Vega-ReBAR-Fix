@@ -9,6 +9,9 @@ using VegaReBARFix.Core;
 /// </summary>
 public sealed class MainForm : Form
 {
+    private const int CaptionWidth = 126;
+    private const int ValueX = 142;
+
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 2000 };
 
     private Label _lblPatch = null!;
@@ -26,6 +29,7 @@ public sealed class MainForm : Form
     private BarStatus _bar = new(0, 0, "не проверялось");
     private int _barAgeSeconds = int.MaxValue;   // hardware check runs on demand + every 30 s
     private bool _busy;
+    private bool _suppressAutoEvents;
 
     public MainForm(bool fromAutostart)
     {
@@ -34,25 +38,25 @@ public sealed class MainForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(566, 470);
+        ClientSize = new Size(640, 470);
         Font = new Font("Segoe UI", 9f);
 
         var gbDiag = new GroupBox
         {
             Text = "Диагностика",
             Location = new Point(12, 12),
-            Size = new Size(542, 132)
+            Size = new Size(616, 132)
         };
-        _lblPatch = AddDiagRow(gbDiag, "Патч реестра:", 28);
-        _lblBar   = AddDiagRow(gbDiag, "BAR выше 4 ГБ:", 54);
-        _lblDriver= AddDiagRow(gbDiag, "Драйвер:", 80);
-        _lblKey   = AddDiagRow(gbDiag, "Ключ адаптера:", 104);
+        _lblPatch  = AddDiagRow(gbDiag, "Патч реестра:", 28);
+        _lblBar    = AddDiagRow(gbDiag, "BAR выше 4 ГБ:", 54);
+        _lblDriver = AddDiagRow(gbDiag, "Драйвер:", 80);
+        _lblKey    = AddDiagRow(gbDiag, "Ключ адаптера:", 104);
 
         var gbActions = new GroupBox
         {
             Text = "Действия",
             Location = new Point(12, 150),
-            Size = new Size(542, 64)
+            Size = new Size(616, 64)
         };
         _btnPatch = new Button { Text = "Пропатчить", Location = new Point(14, 24), Size = new Size(118, 30) };
         _btnUndo  = new Button { Text = "Откатить", Location = new Point(140, 24), Size = new Size(98, 30) };
@@ -60,17 +64,17 @@ public sealed class MainForm : Form
         _btnReboot = new Button
         {
             Text = "Перезагрузить ПК",
-            Location = new Point(404, 24),
+            Location = new Point(476, 24),
             Size = new Size(126, 30),
             Enabled = false
         };
-        _btnPatch.Click += (_, _) => RunPatched(() =>
+        _btnPatch.Click += (_, _) => RunGuarded(() =>
         {
             var (ok, msg) = Patcher.Patch();
             Log(msg);
             if (ok) _btnReboot.Enabled = true;
         });
-        _btnUndo.Click += (_, _) => RunPatched(() =>
+        _btnUndo.Click += (_, _) => RunGuarded(() =>
         {
             var (ok, msg) = Patcher.Undo();
             Log(msg);
@@ -94,11 +98,11 @@ public sealed class MainForm : Form
         {
             Text = "Автозапуск",
             Location = new Point(12, 220),
-            Size = new Size(542, 84)
+            Size = new Size(616, 84)
         };
         _chkAutostart = new CheckBox
         {
-            Text = "Проверять при входе в Windows (задача в Планировщике, без UAC)",
+            Text = "Проверять при входе в Windows (Планировщик, без UAC)",
             Location = new Point(14, 24),
             AutoSize = true
         };
@@ -112,7 +116,7 @@ public sealed class MainForm : Form
         _chkAutostart.CheckedChanged += (_, _) =>
         {
             if (_suppressAutoEvents) return;
-            RunPatched(() =>
+            RunGuarded(() =>
             {
                 var (ok, msg) = _chkAutostart.Checked
                     ? Autostart.Enable(Environment.ProcessPath ?? Application.ExecutablePath)
@@ -132,7 +136,7 @@ public sealed class MainForm : Form
         _log = new TextBox
         {
             Location = new Point(12, 310),
-            Size = new Size(542, 116),
+            Size = new Size(616, 116),
             Multiline = true,
             ReadOnly = true,
             ScrollBars = ScrollBars.Vertical,
@@ -141,7 +145,7 @@ public sealed class MainForm : Form
 
         var lblFooter = new Label
         {
-            Text = "Vega-ReBAR-Fix v" + Application.ProductVersion + "  •  GPU: " + AdapterKeyTitle(),
+            Text = "Vega-ReBAR-Fix v" + Application.ProductVersion + "  •  " + AdapterTitle(),
             Location = new Point(14, 434),
             AutoSize = true,
             ForeColor = SystemColors.GrayText
@@ -162,25 +166,44 @@ public sealed class MainForm : Form
         {
             _chkAutostart.Checked = Autostart.TaskExists();  // fires handler only on change
             RefreshStatus(forceBar: true);
+            var adapters = AdapterLocator.FindAllAmdAdapters();
+            if (adapters.Count > 1)
+                Log($"Найдено {adapters.Count} адаптеров AMD; патч применяется к «{AdapterLocator.LocateBest()?.DriverDesc}» (наибольший объём VRAM).");
             if (fromAutostart) Log("Запущено автоматически: слетевший патч восстановлен, нужна перезагрузка.");
         };
     }
 
+    /// <summary>Caption in a fixed-width left column, value starting at a shared X so rows align.</summary>
     private Label AddDiagRow(GroupBox gb, string caption, int y)
     {
-        var cap = new Label { Text = caption, Location = new Point(12, y), AutoSize = true };
-        var val = new Label { Location = new Point(140, y), AutoSize = false, Size = new Size(388, 18), Text = "…" };
+        var cap = new Label
+        {
+            Text = caption,
+            Location = new Point(12, y),
+            AutoSize = false,
+            Size = new Size(CaptionWidth, 18),
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+        var val = new Label
+        {
+            Location = new Point(ValueX, y),
+            AutoSize = false,
+            Size = new Size(gb.Width - ValueX - 12, 18),
+            TextAlign = ContentAlignment.MiddleLeft,
+            AutoEllipsis = true,
+            Text = "…"
+        };
         gb.Controls.Add(cap);
         gb.Controls.Add(val);
         return val;
     }
 
-    private static string AdapterKeyTitle()
+    private static string AdapterTitle()
     {
-        var key = AdapterLocator.Locate();
-        if (key is null) return "AMD адаптер не найден";
-        var info = AdapterLocator.GetInfo(key);
-        return info is null ? key : $"{info.DriverDesc} (Class\\...\\{key})";
+        var best = AdapterLocator.LocateBest();
+        return best is null
+            ? "AMD адаптер не найден"
+            : $"{best.DriverDesc} [{best.ShortId}] (ключ {best.KeyName})";
     }
 
     private void RefreshStatus(bool forceBar)
@@ -189,33 +212,30 @@ public sealed class MainForm : Form
         _busy = true;
         try
         {
-            var key = AdapterLocator.Locate();
-            var reg = key is null
-                ? new RegistryStatus(null, null)
-                : RebarStatus.ReadRegistryFrom($@"HKEY_LOCAL_MACHINE\{AdapterLocator.DisplayClassPath}\{key}");
+            var best = AdapterLocator.LocateBest();
+            var reg = best is null
+                ? new RegistryStatus(null, null, null)
+                : RebarStatus.ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + best.RegistryPath);
 
-            _lblPatch.Text = key is null ? "AMD адаптер не найден" : reg.Describe();
+            _lblPatch.Text = best is null ? "AMD адаптер не найден" : reg.Describe();
             _lblPatch.ForeColor = reg.Patched ? Good : Bad;
 
             if (forceBar) { _bar = RebarStatus.ReadBars(); _barAgeSeconds = 0; }
             _lblBar.Text = _bar.Describe();
             _lblBar.ForeColor = _bar.Error is not null ? Unknown : _bar.Active ? Good : Bad;
 
-            var info = key is null ? null : AdapterLocator.GetInfo(key);
-            _lblDriver.Text = info is null ? "—" : $"{info.DriverVersion}  ({info.DriverDate})";
+            _lblDriver.Text = best is null ? "—" : $"{best.DriverVersion}  ({best.DriverDate})";
             _lblDriver.ForeColor = SystemColors.ControlText;
-            _lblKey.Text = key is null ? "—" : $"Class\\{{4d36e968-...}}\\{key}  [{info?.MatchingDeviceId}]";
+            _lblKey.Text = best is null ? "—" : $"{best.KeyName}  [{best.ShortId}]";
             _lblKey.ForeColor = SystemColors.ControlText;
 
-            _btnPatch.Enabled = key is not null && !reg.Patched;
-            _btnUndo.Enabled = key is not null;
+            _btnPatch.Enabled = best is not null && !reg.Patched;
+            _btnUndo.Enabled = best is not null;
         }
         finally { _busy = false; }
     }
 
-    private bool _suppressAutoEvents;
-
-    private void RunPatched(Action action)
+    private void RunGuarded(Action action)
     {
         try { action(); }
         catch (Exception ex) { Log("Ошибка: " + ex.Message); }

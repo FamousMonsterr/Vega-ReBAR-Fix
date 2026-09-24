@@ -43,20 +43,20 @@ internal static class Program
         AttachConsole(-1);
         try
         {
-            var key = AdapterLocator.Locate();
-            if (key is null)
+            var best = AdapterLocator.LocateBest();
+            if (best is null)
             {
                 Console.WriteLine("AMD адаптер не найден.");
                 return 4;
             }
-            var reg = RebarStatus.ReadRegistryFrom($@"HKEY_LOCAL_MACHINE\{AdapterLocator.DisplayClassPath}\{key}");
-            var info = AdapterLocator.GetInfo(key)!;
+            var reg = RebarStatus.ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + best.RegistryPath);
             var bar = RebarStatus.ReadBars();
 
-            Console.WriteLine($"Ключ:    Class\\{{4d36e968-...}}\\{key}  [{info.MatchingDeviceId}]");
+            var all = AdapterLocator.FindAllAmdAdapters();
+            Console.WriteLine($"Ключ:    {best.KeyName}  [{best.ShortId}]{(all.Count > 1 ? $"  (всего AMD-адаптеров: {all.Count}, выбрана карта с максимальной VRAM)" : "")}");
             Console.WriteLine($"Реестр:  патч {(reg.Patched ? "ЕСТЬ" : "НЕТ")} — {reg.Describe()}");
             Console.WriteLine($"BAR:     {bar.Describe()}");
-            Console.WriteLine($"Драйвер: {info.DriverVersion} ({info.DriverDate})");
+            Console.WriteLine($"Драйвер: {best.DriverVersion} ({best.DriverDate})");
             Console.WriteLine(bar.Active && reg.Patched ? "ИТОГ: ReBAR активен." : "ИТОГ: ReBAR не активен полностью.");
             return reg.Patched ? 0 : 1;
         }
@@ -117,10 +117,10 @@ internal static class Program
             catch { return 1; }
         }
 
-        var key = AdapterLocator.Locate();
-        var reg = key is null
-            ? new RegistryStatus(null, null)
-            : RebarStatus.ReadRegistryFrom($@"HKEY_LOCAL_MACHINE\{AdapterLocator.DisplayClassPath}\{key}");
+        var best = AdapterLocator.LocateBest();
+        var reg = best is null
+            ? new RegistryStatus(null, null, null)
+            : RebarStatus.ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + best.RegistryPath);
 
         if (reg.Patched)
             return 0; // everything is fine — silent exit, no window

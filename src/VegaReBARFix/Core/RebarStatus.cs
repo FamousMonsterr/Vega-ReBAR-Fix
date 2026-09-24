@@ -2,15 +2,20 @@ namespace VegaReBARFix.Core;
 
 using System.Management;
 
-/// <summary>State of the two driver registry values that gate ReBAR.</summary>
-public sealed record RegistryStatus(int? Mode, int? Support)
+/// <summary>State of the three driver registry values that gate ReBAR on legacy ASICs.</summary>
+public sealed record RegistryStatus(int? Mode, int? Support, int? Legacy)
 {
-    /// <summary>True when both KMD_RebarControlMode and KMD_RebarControlSupport equal 1.</summary>
-    public bool Patched => Mode == 1 && Support == 1;
+    /// <summary>True when KMD_RebarControlMode, KMD_RebarControlSupport and
+    /// KMD_EnableReBarForLegacyASIC all equal 1 (the Guru3D trio for Vega/Polaris).</summary>
+    public bool Patched => Mode == 1 && Support == 1 && Legacy == 1;
 
-    public string Describe() => Patched
-        ? "включен"
-        : $"слетел (Mode={Mode?.ToString() ?? "нет"}, Support={Support?.ToString() ?? "нет"})";
+    public string Describe()
+    {
+        if (Patched) return "включен";
+        return $"слетел: Mode={Show(Mode)}, Support={Show(Support)}, Legacy={Show(Legacy)}";
+    }
+
+    private static string Show(int? v) => v?.ToString() ?? "нет";
 }
 
 /// <summary>Largest BAR seen for the GPU, split by the 4 GiB boundary.</summary>
@@ -27,7 +32,7 @@ public sealed record BarStatus(ulong LargestAbove4Gb, ulong LargestBelow4Gb, str
         if (LargestAbove4Gb > 0)
             return $"не активен: BAR выше 4 ГБ всего {Fmt(LargestAbove4Gb)}";
         if (LargestBelow4Gb > 0)
-            return $"не активен: крупнейший BAR {Fmt(LargestBelow4Gb)} ниже 4 ГБ — проверьте BIOS (Above 4G Decoding / Re-Size BAR)";
+            return $"не активен: BAR {Fmt(LargestBelow4Gb)} ниже 4 ГБ — проверьте BIOS (Above 4G / Re-Size BAR)";
         return "не активен: BAR GPU не найден";
     }
 
@@ -46,10 +51,9 @@ public static class RebarStatus
 {
     public static RegistryStatus ReadRegistry()
     {
-        var key = AdapterLocator.Locate();
-        if (key is null) return new RegistryStatus(null, null);
-        var path = $@"HKEY_LOCAL_MACHINE\{AdapterLocator.DisplayClassPath}\{key}";
-        return ReadRegistryFrom(path);
+        var best = AdapterLocator.LocateBest();
+        if (best is null) return new RegistryStatus(null, null, null);
+        return ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + best.RegistryPath);
     }
 
     public static RegistryStatus ReadRegistryFrom(string fullKeyPath)
@@ -58,8 +62,11 @@ public static class RebarStatus
             fullKeyPath.StartsWith("HKEY_LOCAL_MACHINE\\", StringComparison.OrdinalIgnoreCase)
                 ? fullKeyPath["HKEY_LOCAL_MACHINE\\".Length..]
                 : fullKeyPath);
-        if (k is null) return new RegistryStatus(null, null);
-        return new RegistryStatus(AsInt(k.GetValue("KMD_RebarControlMode")), AsInt(k.GetValue("KMD_RebarControlSupport")));
+        if (k is null) return new RegistryStatus(null, null, null);
+        return new RegistryStatus(
+            AsInt(k.GetValue("KMD_RebarControlMode")),
+            AsInt(k.GetValue("KMD_RebarControlSupport")),
+            AsInt(k.GetValue("KMD_EnableReBarForLegacyASIC")));
     }
 
     /// <summary>Queries WMI for the GPU's mapped memory ranges. Takes ~1 s, cache the result.</summary>

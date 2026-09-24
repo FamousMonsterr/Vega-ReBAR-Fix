@@ -15,14 +15,21 @@ One-click Resizable BAR (Smart Access Memory) patcher & guard for AMD GPUs that 
 
 ## What it does
 
-AMD Adrenalin gates ReBAR (SAM) behind a whitelist: newer drivers read two registry values on the display adapter class key — `KMD_RebarControlMode` and `KMD_RebarControlSupport` — and only enable Resizable BAR when both are `1` **and** the GPU is on the supported list. On unsupported cards (RX Vega 56/64, Polaris, …) they stay `0` and the SAM toggle is hidden.
+AMD Adrenalin gates ReBAR (SAM) behind a whitelist: newer drivers read registry values on the display adapter class key and only enable Resizable BAR when the GPU is on the supported list. On unsupported cards (RX Vega 56/64, Polaris, …) the gate is closed and the SAM toggle is hidden. The community-known unlock ([Guru3D thread](https://forums.guru3d.com), [PCGamingWiki](https://www.pcgamingwiki.com/wiki/AMD_Radeon_Software)) is the **trio of DWORD values = 1** on the GPU's class key:
 
-**The values get wiped by every Windows Update / driver reinstall** (the class key is recreated from the INF defaults). This tool puts them back and watches for it:
+| Value | Purpose |
+|---|---|
+| `KMD_RebarControlMode` | enables the driver's ReBAR path |
+| `KMD_RebarControlSupport` | exposes the SAM toggle in Adrenalin |
+| `KMD_EnableReBarForLegacyASIC` | **removes the ASIC whitelist gate** — without it the driver silently ignores the first two on Vega/Polaris |
+
+**These values get wiped by Windows Update / driver reinstalls** (and Adrenalin rewrites them when settings change) — the class key is recreated from the INF defaults. This tool puts them back and watches for it:
 
 - **Diagnostics** — live green/red status, refreshed on a 2 s timer:
-  - *Registry patch* — are both `KMD_*` values `1`?
+  - *Registry patch* — are all three `KMD_*` values `1`?
   - *BAR above 4 GB* — queries WMI for the GPU's mapped memory ranges; ReBAR counts as active only when a BAR **≥ 512 MB sits above the 4 GiB boundary** (Above-4G Decoding alone just moves the stock 256 MB BAR up). This is the same evidence Device Manager shows as "Large Memory Range".
-- **Patch / Undo** — writes or reverts the two values, with a full `.reg` backup saved to `%ProgramData%\VegaReBARFix\` and originals stored in `HKCU\Software\VegaReBARFix\Backup` before touching anything.
+- **Patch / Undo** — writes or reverts the trio, with a full `.reg` backup saved to `%ProgramData%\VegaReBARFix\` and originals stored in `HKCU\Software\VegaReBARFix\Backup` before touching anything.
+- **Multi-adapter safe** — systems with a Vega dGPU **and** a Vega iGPU (APU) get several AMD class keys; the tool always patches the card with the **largest dedicated VRAM** (the discrete GPU).
 - **Autostart guard** (optional, checkbox) — creates a Task Scheduler job (`VegaReBARFix_Autostart`, runs at logon with highest privileges, **no UAC prompt**). At every logon it checks the flags; if a Windows Update wiped them, it silently re-patches and shows a window with a **Reboot** button. Reboot **never** happens by itself.
 - Adapter key (`0000`, `0001`, …) is auto-discovered at runtime — it shifts when the driver is reinstalled, so it is never hard-coded.
 
@@ -49,7 +56,7 @@ AMD Adrenalin gates ReBAR (SAM) behind a whitelist: newer drivers read two regis
 | Command | Effect | Exit codes |
 |---|---|---|
 | `VegaReBARFix.exe -status` | print patch + BAR status, no changes | `0` = patched, `1` = wiped, `4` = no AMD GPU |
-| `VegaReBARFix.exe -patch` | write `KMD_RebarControlMode=1`, `KMD_RebarControlSupport=1` (self-elevates) | `0` / `1` |
+| `VegaReBARFix.exe -patch` | write the trio (`KMD_RebarControlMode=1`, `KMD_RebarControlSupport=1`, `KMD_EnableReBarForLegacyASIC=1`), self-elevates | `0` / `1` |
 | `VegaReBARFix.exe -undo` | restore pre-patch values from backup | `0` / `1` |
 | `VegaReBARFix.exe -autostart` | logon guard: check → silently re-patch → show window only if a reboot is needed | — |
 
@@ -65,6 +72,7 @@ AMD Adrenalin gates ReBAR (SAM) behind a whitelist: newer drivers read two regis
 | Symptom | Fix |
 |---|---|
 | *Registry patch* red after an update | Press **Patch** again (or let the autostart guard do it) + reboot |
+| Flags wiped even between updates | Adrenalin rewrites them when its own settings change — keep the autostart guard enabled |
 | *BAR above 4 GB* red after reboot | Check BIOS: Above 4G Decoding = Enabled, Re-Size BAR = Enabled/Auto, CSM = Disabled |
 | BIOS is right, still red | The vBIOS may not advertise the PCIe ReBAR capability. Firmware-side fix: [ReBarUEFI](https://github.com/xCuri0/ReBarUEFI) (adds a ReBarDxe module to the board's UEFI; flashing a modded BIOS carries a brick risk — know what you are doing) |
 | GPU-Z shows ReBAR but games unchanged | Normal on some titles; the win depends on the game's BAR utilization |
@@ -96,14 +104,21 @@ dotnet publish src/VegaReBARFix -c Release -r win-x64 --self-contained true ^
 
 ## Что делает
 
-Драйвер AMD держит ReBAR (SAM) за whitelist: в ключе класса видеоадаптера он читает два значения — `KMD_RebarControlMode` и `KMD_RebarControlSupport` — и включает Resizable BAR только если оба равны `1` **и** карта в списке поддерживаемых. На неподдерживаемых картах (RX Vega 56/64, Polaris и т.д.) значения остаются `0`, а переключатель SAM скрыт.
+Драйвер AMD держит ReBAR (SAM) за whitelist: в ключе класса видеоадаптера он читает реестровые значения и включает Resizable BAR только для карт из списка поддерживаемых. На неподдерживаемых картах (RX Vega 56/64, Polaris и т.д.) шлюз закрыт, а переключатель SAM скрыт. Известное community-решение ([тема на Guru3D](https://forums.guru3d.com), [PCGamingWiki](https://www.pcgamingwiki.com/wiki/AMD_Radeon_Software)) — **триплет DWORD-значений = 1** в ключе класса видеокарты:
 
-**После каждого обновления Windows / переустановки драйвера значения слетают** (ключ класса пересоздаётся из дефолтов INF). Утилита возвращает их обратно и следит за этим:
+| Значение | Зачем |
+|---|---|
+| `KMD_RebarControlMode` | включает путь ReBAR в драйвере |
+| `KMD_RebarControlSupport` | показывает переключатель SAM в Adrenalin |
+| `KMD_EnableReBarForLegacyASIC` | **снимает whitelist по поколению чипа** — без него драйвер молча игнорирует первые два значения на Vega/Polaris |
+
+**После обновлений Windows / переустановок драйвера значения слетают** (ключ класса пересоздаётся из дефолтов INF; Adrenalin тоже может их переписать при смене настроек). Утилита возвращает их обратно и следит за этим:
 
 - **Диагностика** — живой статус «зелёный/красный», обновление по таймеру 2 с:
-  - *Патч реестра* — оба ли значения `KMD_*` равны `1`;
+  - *Патч реестра* — все ли три значения `KMD_*` равны `1`;
   - *BAR выше 4 ГБ* — через WMI опрашивает диапазоны памяти GPU; ReBAR считается активным, только если BAR **≥ 512 МБ лежит выше границы 4 ГиБ** (одно Above 4G Decoding просто поднимает штатный BAR на 256 МБ). Тот же признак, что Device Manager показывает как «Большой диапазон памяти».
-- **Пропатчить / Откатить** — запись или откат двух значений; перед изменением полный бэкап `.reg` в `%ProgramData%\VegaReBARFix\` и оригиналы в `HKCU\Software\VegaReBARFix\Backup`.
+- **Пропатчить / Откатить** — запись или откат триплета; перед изменением полный бэкап `.reg` в `%ProgramData%\VegaReBARFix\` и оригиналы в `HKCU\Software\VegaReBARFix\Backup`.
+- **Несколько карт** — если в системе Vega-дискретка **и** Vega-iGPU (APU), ключей класса несколько; патчуется всегда карта с **наибольшим объёмом собственной VRAM** (дискретная).
 - **Автозапуск-страж** (опционально, галочка) — создаёт задачу Планировщика (`VegaReBARFix_Autostart`, при входе в Windows с максимальными правами, **без UAC-запроса**). При каждом входе проверяет флаги; если обновление их стёрло — тихо патчит и показывает окно с кнопкой **Перезагрузить**. Перезагрузка **никогда** не происходит сама.
 - Номер ключа адаптера (`0000`, `0001`, …) определяется автоматически при запуске — он меняется при переустановке драйвера.
 
@@ -130,7 +145,7 @@ dotnet publish src/VegaReBARFix -c Release -r win-x64 --self-contained true ^
 | Команда | Действие | Коды выхода |
 |---|---|---|
 | `VegaReBARFix.exe -status` | показать статус патча и BAR, ничего не меняя | `0` = патч есть, `1` = слетел, `4` = GPU не найден |
-| `VegaReBARFix.exe -patch` | записать `KMD_RebarControlMode=1`, `KMD_RebarControlSupport=1` (сам запросит права) | `0` / `1` |
+| `VegaReBARFix.exe -patch` | записать триплет (`KMD_RebarControlMode=1`, `KMD_RebarControlSupport=1`, `KMD_EnableReBarForLegacyASIC=1`), сам запросит права | `0` / `1` |
 | `VegaReBARFix.exe -undo` | откат к значениям из бэкапа | `0` / `1` |
 | `VegaReBARFix.exe -autostart` | страж при входе: проверка → тихий патч → окно только если нужна перезагрузка | — |
 
@@ -146,6 +161,7 @@ dotnet publish src/VegaReBARFix -c Release -r win-x64 --self-contained true ^
 | Симптом | Что делать |
 |---|---|
 | *Патч реестра* красный после обновления | Нажать **Пропатчить** снова (или дождаться стража) + перезагрузка |
+| Флаги слетают даже между обновлениями | Adrenalin переписывает их при смене собственных настроек — держите страж автозапуска включённым |
 | *BAR выше 4 ГБ* красный после перезагрузки | Проверить BIOS: Above 4G Decoding = Enabled, Re-Size BAR = Enabled/Auto, CSM = Disabled |
 | BIOS верный, всё равно красный | Возможно, vBIOS не анонсирует ReBAR-возможность PCIe. Решение на стороне прошивки: [ReBarUEFI](https://github.com/xCuri0/ReBarUEFI) (добавляет ReBarDxe в UEFI платы; прошивка модифицированного BIOS — риск брика, действуйте осознанно) |
 | GPU-Z показывает ReBAR, а игры не изменились | Нормально: выигрыш зависит от того, использует ли игра BAR |
