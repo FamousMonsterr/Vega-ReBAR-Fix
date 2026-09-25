@@ -3,92 +3,109 @@ namespace VegaReBARFix.Core;
 using Microsoft.Win32;
 
 /// <summary>
-/// Applies / reverts the ReBAR registry flags on the AMD adapter class key.
-/// The Guru3D trio for legacy ASICs (Vega/Polaris) is:
-///   KMD_RebarControlMode = 1, KMD_RebarControlSupport = 1, KMD_EnableReBarForLegacyASIC = 1.
-/// Original values are stored under HKCU\Software\VegaReBARFix\Backup and a full
-/// .reg export is written to %ProgramData%\VegaReBARFix\ before any change.
+/// Applies / reverts the ReBAR registry flag trio on AMD adapter class keys.
+/// Same physical card can own several class keys (a driver reinstall or a
+/// Dual-BIOS switch re-enumerates it), so the patch targets EVERY selected
+/// adapter — the trio is inert on stale keys and must be present on whichever
+/// key Windows decides to bind the driver to.
+/// Per-key originals are stored under HKCU\Software\VegaReBARFix\Backup\&lt;key&gt;
+/// and a full .reg export is written to %ProgramData%\VegaReBARFix\.
 /// </summary>
 public static class Patcher
 {
-    private const string BackupKeyPath = @"Software\VegaReBARFix\Backup";
+    private const string BackupRoot = @"Software\VegaReBARFix\Backup";
     private const string BackupDir = "VegaReBARFix"; // under %ProgramData%
 
-    public static (bool Ok, string Message) Patch()
+    public static string KeyPath(string keyName) =>
+        $@"SYSTEM\CurrentControlSet\Control\Class\{{4d36e968-e325-11ce-bfc1-08002be10318}}\{keyName}";
+
+    /// <summary>Patches every given adapter; returns aggregated result.</summary>
+    public static (bool Ok, string Message) PatchAll(IReadOnlyList<AdapterInfo> adapters)
     {
-        var best = AdapterLocator.LocateBest();
-        if (best is null)
+        if (adapters.Count == 0)
             return (false, L10n.T("AMD adapter key not found — is the driver installed?",
                                   "Ключ адаптера AMD не найден — драйвер установлен?"));
 
-        SaveBackup(best.KeyName);
-        using var k = Registry.LocalMachine.OpenSubKey(best.RegistryPath, writable: true);
+        var ok = true;
+        var details = new List<string>();
+        foreach (var a in adapters)
+        {
+            var (k, msg) = PatchOne(a);
+            ok &= k;
+            details.Add($"{a.KeyName}: {msg}");
+        }
+        return (ok, (ok
+                ? L10n.T("Patch applied: ", "Патч применён: ")
+                : L10n.T("Not everything was patched: ", "Патч применён не везде: "))
+            + string.Join("; ", details)
+            + L10n.T(". A reboot is required.", ". Требуется перезагрузка."));
+    }
+
+    private static (bool Ok, string Msg) PatchOne(AdapterInfo a)
+    {
+        SaveBackup(a.KeyName);
+        using var k = Registry.LocalMachine.OpenSubKey(a.RegistryPath, writable: true);
         if (k is null)
-            return (false, L10n.T("Cannot open the key for writing (no administrator rights?)",
-                                  "Не удалось открыть ключ на запись (нет прав администратора?)"));
+            return (false, L10n.T("cannot open for writing (no admin?)", "нет доступа на запись (нет прав?)"));
 
         k.SetValue("KMD_RebarControlMode", 1, RegistryValueKind.DWord);
         k.SetValue("KMD_RebarControlSupport", 1, RegistryValueKind.DWord);
         k.SetValue("KMD_EnableReBarForLegacyASIC", 1, RegistryValueKind.DWord);
 
-        var st = RebarStatus.ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + best.RegistryPath);
-        if (st.Patched)
-            return (true, L10n.T(
-                $"Patch applied (key {best.KeyName}): Mode=1, Support=1, LegacyASIC=1. A reboot is required.",
-                $"Патч применён (ключ {best.KeyName}): Mode=1, Support=1, LegacyASIC=1. Требуется перезагрузка."));
-        return (false, L10n.T("Write not confirmed on re-read: ", "Запись не подтвердилась перечитыванием: ") + st.Describe());
+        var st = RebarStatus.ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + a.RegistryPath);
+        return st.Patched
+            ? (true, L10n.T("Mode=1, Support=1, LegacyASIC=1", "Mode=1, Support=1, LegacyASIC=1"))
+            : (false, L10n.T("write not confirmed", "запись не подтвердилась") + " — " + st.Describe());
     }
 
-    public static (bool Ok, string Message) Undo()
+    /// <summary>Reverts every given adapter from its per-key backup.</summary>
+    public static (bool Ok, string Message) UndoAll(IReadOnlyList<AdapterInfo> adapters)
     {
-        // Prefer the key recorded at patch time: a driver reinstall may have
-        // re-enumerated the adapter under a different number since then.
-        using (var b = Registry.CurrentUser.OpenSubKey(BackupKeyPath))
-            if (b?.GetValue("KeyName") is string saved && AdapterLocator.GetInfo(saved) is not null)
-                return UndoKey(saved, b);
-
-        var best = AdapterLocator.LocateBest();
-        if (best is null)
+        if (adapters.Count == 0)
             return (false, L10n.T("AMD adapter key not found.", "Ключ адаптера AMD не найден."));
-        return UndoKey(best.KeyName, null);
+
+        var ok = true;
+        var details = new List<string>();
+        foreach (var a in adapters)
+        {
+            var (k, msg) = UndoOne(a.KeyName);
+            ok &= k;
+            details.Add($"{a.KeyName}: {msg}");
+        }
+        return (ok, (ok
+                ? L10n.T("Undo completed: ", "Откат выполнен: ")
+                : L10n.T("Not everything was reverted: ", "Откат выполнен не везде: "))
+            + string.Join("; ", details)
+            + L10n.T(". A reboot is required.", ". Требуется перезагрузка."));
     }
 
-    private static (bool Ok, string Message) UndoKey(string keyName, RegistryKey? backup)
+    private static (bool Ok, string Msg) UndoOne(string keyName)
     {
-        var path = $@"SYSTEM\CurrentControlSet\Control\Class\{{4d36e968-e325-11ce-bfc1-08002be10318}}\{keyName}";
-        using var k = Registry.LocalMachine.OpenSubKey(path, writable: true);
+        using var backup = Registry.CurrentUser.OpenSubKey($@"{BackupRoot}\{keyName}");
+        using var k = Registry.LocalMachine.OpenSubKey(KeyPath(keyName), writable: true);
         if (k is null)
-            return (false, L10n.T("Cannot open the key for writing (no administrator rights?)",
-                                  "Не удалось открыть ключ на запись (нет прав администратора?)"));
+            return (false, L10n.T("cannot open for writing (no admin?)", "нет доступа на запись (нет прав?)"));
 
-        // -1 means the value did not exist before the patch -> delete it now.
-        var mode = backup?.GetValue("Mode") as int? ?? 0;
-        var support = backup?.GetValue("Support") as int? ?? -1;
-        var legacy = backup?.GetValue("Legacy") as int? ?? -1;
-
-        if (mode >= 0) k.SetValue("KMD_RebarControlMode", mode, RegistryValueKind.DWord);
-        else k.DeleteValue("KMD_RebarControlMode", throwOnMissingValue: false);
-
-        RestoreOrDelete(k, "KMD_RebarControlSupport", support);
-        RestoreOrDelete(k, "KMD_EnableReBarForLegacyASIC", legacy);
-
-        return (true, L10n.T($"Undo completed (key {keyName}). A reboot is required.",
-                             $"Откат выполнен (ключ {keyName}). Требуется перезагрузка."));
+        RestoreOrDelete(k, "KMD_RebarControlMode", backup, "Mode");
+        RestoreOrDelete(k, "KMD_RebarControlSupport", backup, "Support");
+        RestoreOrDelete(k, "KMD_EnableReBarForLegacyASIC", backup, "Legacy");
+        return (true, L10n.T("reverted from backup", "восстановлено из бэкапа"));
     }
 
-    private static void RestoreOrDelete(RegistryKey k, string name, int original)
+    private static void RestoreOrDelete(RegistryKey target, string valueName, RegistryKey? backup, string backupName)
     {
-        if (original >= 0) k.SetValue(name, original, RegistryValueKind.DWord);
-        else k.DeleteValue(name, throwOnMissingValue: false);
+        if (backup?.GetValue(backupName) is int original && original >= 0)
+            target.SetValue(valueName, original, RegistryValueKind.DWord);
+        else
+            target.DeleteValue(valueName, throwOnMissingValue: false);
     }
 
     private static void SaveBackup(string keyName)
     {
-        var path = $@"SYSTEM\CurrentControlSet\Control\Class\{{4d36e968-e325-11ce-bfc1-08002be10318}}\{keyName}";
+        var path = KeyPath(keyName);
         using (var k = Registry.LocalMachine.OpenSubKey(path))
         {
-            using var b = Registry.CurrentUser.CreateSubKey(BackupKeyPath);
-            b.SetValue("KeyName", keyName);
+            using var b = Registry.CurrentUser.CreateSubKey($@"{BackupRoot}\{keyName}");
             b.SetValue("Mode", AsBackupInt(k?.GetValue("KMD_RebarControlMode")));
             b.SetValue("Support", AsBackupInt(k?.GetValue("KMD_RebarControlSupport")));
             b.SetValue("Legacy", AsBackupInt(k?.GetValue("KMD_EnableReBarForLegacyASIC")));
@@ -106,7 +123,7 @@ public static class Patcher
             };
             using var p = System.Diagnostics.Process.Start(psi);
             p?.WaitForExit(10_000);
-            using var b = Registry.CurrentUser.CreateSubKey(BackupKeyPath);
+            using var b = Registry.CurrentUser.CreateSubKey($@"{BackupRoot}\{keyName}");
             b.SetValue("RegFile", File.Exists(file) ? file : "");
         }
         catch { /* best effort: HKCU backup above is authoritative */ }

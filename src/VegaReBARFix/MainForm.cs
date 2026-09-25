@@ -1,5 +1,6 @@
 namespace VegaReBARFix;
 
+using Microsoft.Win32;
 using VegaReBARFix.Core;
 
 /// <summary>
@@ -18,12 +19,13 @@ public sealed class MainForm : Form
 {
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 2000 };
 
-    private GroupBox _gbDiag = null!, _gbActions = null!, _gbAuto = null!;
+    private GroupBox _gbDiag = null!, _gbCards = null!, _gbActions = null!, _gbAuto = null!;
     private Label _capPatch = null!, _capBar = null!, _capVbios = null!, _capDriver = null!, _capKey = null!;
     private Label _lblPatch = null!, _lblBar = null!, _lblVbios = null!, _lblDriver = null!, _lblKey = null!;
-    private Label _lblFooter = null!, _lblLang = null!;
+    private Label _lblFooter = null!, _lblLang = null!, _lblNoCards = null!;
     private LinkLabel _lnkRebarUefi = null!;
     private ComboBox _langCombo = null!;
+    private readonly List<(AdapterInfo Info, CheckBox Cb, Label State)> _cards = new();
 
     private Button _btnPatch = null!, _btnUndo = null!, _btnRefresh = null!, _btnReboot = null!;
     private CheckBox _chkAutostart = null!, _chkAutoPatch = null!;
@@ -49,8 +51,8 @@ public sealed class MainForm : Form
         FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(R(800), R(600));
-        MinimumSize = new Size(R(700), R(540));
+        ClientSize = new Size(R(800), R(660));
+        MinimumSize = new Size(R(700), R(600));
         Font = new Font("Segoe UI", 9f);
         Text = L10n.T("Vega-ReBAR-Fix — ReBAR (SAM) for AMD Vega/Polaris",
                       "Vega-ReBAR-Fix — ReBAR (SAM) для AMD Vega/Polaris");
@@ -82,6 +84,10 @@ public sealed class MainForm : Form
         };
         _gbDiag.Controls.Add(_lnkRebarUefi);
 
+        _gbCards = new GroupBox();
+        _lblNoCards = new Label { AutoSize = true, ForeColor = SystemColors.GrayText };
+        _gbCards.Controls.Add(_lblNoCards);
+
         _gbActions = new GroupBox();
         _btnPatch = new Button();
         _btnUndo  = new Button();
@@ -89,13 +95,15 @@ public sealed class MainForm : Form
         _btnReboot = new Button { Enabled = false };
         _btnPatch.Click += (_, _) => RunGuarded(() =>
         {
-            var (ok, msg) = Patcher.Patch();
+            var targets = SelectedAdapters();
+            var (ok, msg) = Patcher.PatchAll(targets);
             Log(msg);
             if (ok) _btnReboot.Enabled = true;
         });
         _btnUndo.Click += (_, _) => RunGuarded(() =>
         {
-            var (ok, msg) = Patcher.Undo();
+            var targets = SelectedAdapters();
+            var (ok, msg) = Patcher.UndoAll(targets);
             Log(msg);
             if (ok) _btnReboot.Enabled = true;
         });
@@ -178,7 +186,7 @@ public sealed class MainForm : Form
             Log(L10n.T("Language switched to English.", "Язык переключён на русский."));
         };
 
-        Controls.AddRange(new Control[] { _gbDiag, _gbActions, _gbAuto, _log, _lblFooter, _lblLang, _langCombo });
+        Controls.AddRange(new Control[] { _gbDiag, _gbCards, _gbActions, _gbAuto, _log, _lblFooter, _lblLang, _langCombo });
 
         AcceptButton = _btnPatch;
         Resize += (_, _) => LayoutAll();
@@ -196,18 +204,90 @@ public sealed class MainForm : Form
             _suppressAutoEvents = true;
             _chkAutostart.Checked = Autostart.TaskExists();  // reflect reality, do not recreate the job
             _suppressAutoEvents = false;
+            BuildCardList();
             RefreshStatus(forceBar: true);
             var adapters = AdapterLocator.FindAllAmdAdapters();
             if (adapters.Count > 1)
                 Log(L10n.T(
-                    $"Found {adapters.Count} AMD adapters; patching '{AdapterLocator.LocateBest()?.DriverDesc}' (the one with the largest VRAM).",
-                    $"Найдено {adapters.Count} адаптеров AMD; патч применяется к «{AdapterLocator.LocateBest()?.DriverDesc}» (наибольший объём VRAM)."));
+                    $"Found {adapters.Count} AMD adapter keys (a driver reinstall or a Dual-BIOS switch re-enumerates the same card). By default ALL of them are patched, so the trio is in place no matter which key Windows binds the driver to. Uncheck a key to exclude it.",
+                    $"Найдено {adapters.Count} ключей адаптеров AMD (переустановка драйвера или переключение Dual BIOS пересоздаёт ключ той же карты). По умолчанию патчуются ВСЕ, чтобы триплет был на месте независимо от того, какой ключ выберет Windows. Снимите галочку, чтобы исключить ключ."));
             if (fromAutostart)
                 Log(L10n.T("Started automatically: wiped patch restored, a reboot is required.",
                            "Запущено автоматически: слетевший патч восстановлен, нужна перезагрузка."));
         };
 
         ApplyLanguage();
+    }
+
+    /// <summary>Builds one checkbox row per AMD adapter key. Defaults to all selected;
+    /// previously excluded keys (by MatchingDeviceId) start unchecked.</summary>
+    private void BuildCardList()
+    {
+        foreach (var (_, cb, lbl) in _cards) { _gbCards.Controls.Remove(cb); _gbCards.Controls.Remove(lbl); }
+        _cards.Clear();
+        _gbCards.Controls.Remove(_lblNoCards);
+
+        var adapters = AdapterLocator.FindAllAmdAdapters();
+        var active = AdapterLocator.GetActiveKeyNames();
+        var present = AdapterLocator.GetPresentDeviceIds();
+        var excluded = ExcludedKeys;
+
+        foreach (var a in adapters)
+        {
+            bool isActive = AdapterLocator.IsActive(a, active, present);
+            bool check = !excluded.Contains(a.MatchingDeviceId, StringComparer.OrdinalIgnoreCase);
+
+            var cb = new CheckBox
+            {
+                Location = new Point(R(14), R(24) + _cards.Count * R(26)),
+                AutoSize = true,
+                Checked = check,
+                Text = $"{a.KeyName} — {a.DriverDesc} [{a.MatchingDeviceId}] • {a.VramText}" +
+                       (isActive ? L10n.T("  • ACTIVE", "  • АКТИВНАЯ") : L10n.T("  • stale key", "  • неактивный ключ"))
+            };
+            cb.CheckedChanged += (_, _) => SaveExclusions();
+            var lblState = new Label
+            {
+                AutoSize = false,
+                Size = new Size(R(96), R(18)),
+                Location = new Point(R(470), R(24) + _cards.Count * R(26) + R(2)),
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true
+            };
+            _gbCards.Controls.Add(cb);
+            _gbCards.Controls.Add(lblState);
+            _cards.Add((a, cb, lblState));
+        }
+
+        if (adapters.Count == 0)
+        {
+            _lblNoCards.Text = L10n.T("No AMD adapters found.", "Адаптеры AMD не найдены.");
+            _lblNoCards.Location = new Point(R(14), R(26));
+            _gbCards.Controls.Add(_lblNoCards);
+        }
+
+        _gbCards.Text = L10n.T(
+            $"Cards to patch ({adapters.Count} key{(adapters.Count == 1 ? "" : "s")})",
+            $"Карты для патча (ключей: {adapters.Count})");
+        LayoutAll();
+        RefreshStatus(forceBar: false);
+    }
+
+    private List<AdapterInfo> SelectedAdapters() =>
+        _cards.Where(c => c.Cb.Checked).Select(c => c.Info).ToList();
+
+    private static readonly string[] ExcludedDefault = Array.Empty<string>();
+
+    /// <summary>Excluded adapters are remembered by MatchingDeviceId (stable across key renumbering).</summary>
+    private string[] ExcludedKeys =>
+        Registry.CurrentUser.OpenSubKey(L10n.AppKey)?.GetValue("ExcludedKeys") as string[] ?? ExcludedDefault;
+
+    private void SaveExclusions()
+    {
+        using var k = Registry.CurrentUser.CreateSubKey(L10n.AppKey);
+        k.SetValue("ExcludedKeys",
+            _cards.Where(c => !c.Cb.Checked).Select(c => c.Info.MatchingDeviceId).ToArray(),
+            RegistryValueKind.MultiString);
     }
 
     private void ApplyLanguage()
@@ -253,9 +333,11 @@ public sealed class MainForm : Form
     {
         int W = ClientSize.Width, H = ClientSize.Height;
         int x = R(12), w = W - 2 * R(12);
+        int cardsH = R(24 + 26 * Math.Max(_cards.Count, 1) + 10);
 
         _gbDiag.SetBounds(x, R(12), w, R(198));
-        _gbActions.SetBounds(x, _gbDiag.Bottom + R(8), w, R(64));
+        _gbCards.SetBounds(x, _gbDiag.Bottom + R(8), w, cardsH);
+        _gbActions.SetBounds(x, _gbCards.Bottom + R(8), w, R(64));
         _gbAuto.SetBounds(x, _gbActions.Bottom + R(8), w, R(84));
         _log.SetBounds(x, _gbAuto.Bottom + R(8), w, Math.Max(R(60), H - _gbAuto.Bottom - R(8) - R(42)));
 
@@ -324,12 +406,26 @@ public sealed class MainForm : Form
         try
         {
             var best = AdapterLocator.LocateBest();
-            var reg = best is null
-                ? new RegistryStatus(null, null, null)
-                : RebarStatus.ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + best.RegistryPath);
 
-            _lblPatch.Text = best is null ? L10n.T("AMD adapter not found", "AMD адаптер не найден") : reg.Describe();
-            _lblPatch.ForeColor = reg.Patched ? Good : Bad;
+            // Per-card trio state + aggregated patch row across the selected keys.
+            var perCard = new List<(AdapterInfo Info, bool Patched)>();
+            foreach (var (info, cb, state) in _cards)
+            {
+                var st = RebarStatus.ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + info.RegistryPath);
+                state.Text = L10n.T(st.Patched ? "patch: yes" : "patch: NO", st.Patched ? "патч: есть" : "патч: НЕТ");
+                state.ForeColor = st.Patched ? Good : Bad;
+                perCard.Add((info, st.Patched));
+            }
+            var selected = _cards.Where(c => c.Cb.Checked).Count();
+            bool allPatched = selected > 0 && perCard.All(p =>
+                !_cards.Any(c => c.Info.KeyName == p.Info.KeyName && c.Cb.Checked) || p.Patched);
+
+            _lblPatch.Text = _cards.Count == 0
+                ? L10n.T("AMD adapter not found", "AMD адаптер не найден")
+                : allPatched
+                    ? L10n.T($"enabled ({selected} key{(selected == 1 ? "" : "s")})", $"включен ({selected} ключ(ей))")
+                    : L10n.T("wiped on some keys — see 'Cards to patch'", "слетел на части ключей — см. «Карты для патча»");
+            _lblPatch.ForeColor = allPatched ? Good : Bad;
 
             if (forceBar) { _bar = RebarStatus.ReadBars(); _barAgeSeconds = 0; }
             _lblBar.Text = _bar.Describe();
@@ -366,8 +462,8 @@ public sealed class MainForm : Form
             _lblKey.Text = best is null ? "—" : $"{best.KeyName}  [{best.ShortId}]";
             _lblKey.ForeColor = SystemColors.ControlText;
 
-            _btnPatch.Enabled = best is not null && !reg.Patched;
-            _btnUndo.Enabled = best is not null;
+            _btnPatch.Enabled = _cards.Any(c => c.Cb.Checked && !perCard.Any(p => p.Info.KeyName == c.Info.KeyName && p.Patched));
+            _btnUndo.Enabled = _cards.Any(c => c.Cb.Checked);
         }
         finally { _busy = false; }
     }

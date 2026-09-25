@@ -28,8 +28,8 @@ internal static class Program
         return mode switch
         {
             "-status" => CliStatus(),
-            "-patch" => ElevatedAction(args, doWork: () => Patcher.Patch(), title: () => L10n.T("Patch", "Патч")),
-            "-undo" => ElevatedAction(args, doWork: () => Patcher.Undo(), title: () => L10n.T("Undo", "Откат")),
+            "-patch" => ElevatedAction(args, doWork: () => Patcher.PatchAll(AdapterLocator.FindAllAmdAdapters()), title: () => L10n.T("Patch", "Патч")),
+            "-undo" => ElevatedAction(args, doWork: () => Patcher.UndoAll(AdapterLocator.FindAllAmdAdapters()), title: () => L10n.T("Undo", "Откат")),
             "-autostart" => AutostartRun(),
             _ => RunGui(args)
         };
@@ -50,20 +50,20 @@ internal static class Program
                 Console.WriteLine(L10n.T("AMD adapter not found.", "AMD адаптер не найден."));
                 return 4;
             }
-            var reg = RebarStatus.ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + best.RegistryPath);
             var bar = RebarStatus.ReadBars();
 
             var all = AdapterLocator.FindAllAmdAdapters();
-            var multi = all.Count > 1
-                ? L10n.T($"  (AMD adapters found: {all.Count}, the one with the max VRAM selected)",
-                         $"  (всего AMD-адаптеров: {all.Count}, выбрана карта с максимальной VRAM)")
-                : "";
-            Console.WriteLine($"{L10n.T("Key:", "Ключ:")}      {best.KeyName}  [{best.ShortId}]{multi}");
-            var regLine = reg.Patched
-                ? L10n.T("patch PRESENT — enabled", "патч ЕСТЬ — включен")
-                : L10n.T("patch MISSING — ", "патч НЕТ — ") + reg.Describe();
-            Console.WriteLine($"{L10n.T("Registry:", "Реестр:")}  {regLine}");
+            var activeKeys = AdapterLocator.GetActiveKeyNames();
+            var present = AdapterLocator.GetPresentDeviceIds();
             Console.WriteLine($"{L10n.T("BAR:", "BAR:")}     {bar.Describe()}");
+            bool allPatched = true;
+            foreach (var a in all)
+            {
+                var st = RebarStatus.ReadRegistryFrom(@"HKEY_LOCAL_MACHINE\" + a.RegistryPath);
+                allPatched &= st.Patched;
+                var active = AdapterLocator.IsActive(a, activeKeys, present);
+                Console.WriteLine($"{L10n.T("Key:", "Ключ:")}      {a.KeyName}  [{a.MatchingDeviceId}]{(active ? L10n.T("  [ACTIVE]", "  [АКТИВНАЯ]") : "")} — {L10n.T("patch", "патч")} {(st.Patched ? L10n.T("yes", "есть") : L10n.T("NO", "НЕТ"))}");
+            }
             var vbios = VbiosStatus.Create(best.BiosId, bar.Active);
             Console.WriteLine($"{L10n.T("vBIOS:", "vBIOS:")}   {vbios.Describe()}");
             if (vbios.Supported != true && PowerConfig.FastStartupEnabled)
@@ -71,10 +71,10 @@ internal static class Program
                     "         Fast Startup is ON: after flipping the card's Dual BIOS switch do a FULL power-off (shutdown /s /full /t 0), then power on.",
                     "         Fast Startup включён: после переключения тумблера Dual BIOS сделайте ПОЛНОЕ выключение (shutdown /s /full /t 0), затем включите ПК."));
             Console.WriteLine($"{L10n.T("Driver:", "Драйвер:")} {best.DriverVersion} ({best.DriverDate})");
-            Console.WriteLine(bar.Active && reg.Patched
+            Console.WriteLine(bar.Active && allPatched
                 ? L10n.T("RESULT: ReBAR is active.", "ИТОГ: ReBAR активен.")
                 : L10n.T("RESULT: ReBAR is not fully active.", "ИТОГ: ReBAR не активен полностью."));
-            return reg.Patched ? 0 : 1;
+            return allPatched ? 0 : 1;
         }
         finally
         {
@@ -143,7 +143,7 @@ internal static class Program
 
         if (Autostart.AutoPatchEnabled)
         {
-            var (ok, msg) = Patcher.Patch();
+            var (ok, msg) = Patcher.PatchAll(AdapterLocator.FindAllAmdAdapters());
             if (ok) return ShowGuardWindow();   // patched: user decides when to reboot
             MessageBox.Show(msg, "Vega-ReBAR-Fix", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 1;
