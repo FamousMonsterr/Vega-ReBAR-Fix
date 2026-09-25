@@ -136,7 +136,10 @@ public static class RebarStatus
             AsInt(k.GetValue("KMD_EnableReBarForLegacyASIC")));
     }
 
-    /// <summary>Queries WMI for the GPU's mapped memory ranges. Takes ~1 s, cache the result.</summary>
+    /// <summary>Queries WMI for the GPU's mapped memory ranges, merged with the
+    /// authoritative system resource map (HKLM\HARDWARE\RESOURCEMAP — the same
+    /// data Device Manager shows). WMI's CIM layer occasionally drops rows;
+    /// the resource map is read from the registry and always live.</summary>
     public static BarStatus ReadBars()
     {
         try
@@ -170,11 +173,73 @@ public static class RebarStatus
                 else if (size > below) below = size;
             }
 
+            // Second, independent source: the live system resource map (no CIM).
+            var resMap = LargestAbove4GbFromResourceMap();
+            if (resMap is ulong rm && rm > above) above = rm;
+
             return new BarStatus(above, below, null);
         }
         catch (Exception ex)
         {
             return new BarStatus(0, 0, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Parses HKLM\HARDWARE\RESOURCEMAP\System Resources\Reserved\.Translated —
+    /// a CM_RESOURCE_LIST with every memory range the OS has assigned. Returns the
+    /// largest range starting at or above the 4 GiB line (system-wide; the GPU BAR
+    /// is in practice the only such large range), or null if unreadable.
+    /// </summary>
+    public static ulong? LargestAbove4GbFromResourceMap()
+    {
+        try
+        {
+            if (Microsoft.Win32.Registry.GetValue(
+                    @"HKEY_LOCAL_MACHINE\HARDWARE\RESOURCEMAP\System Resources\Reserved",
+                    ".Translated", null) is not byte[] raw || raw.Length < 16)
+                return null;
+
+            int pos = 0;
+            uint listCount = BitConverter.ToUInt32(raw, pos); pos += 4;
+            ulong maxAbove = 0;
+
+            for (int list = 0; list < listCount && pos + 8 <= raw.Length; list++)
+            {
+                pos += 8; // INTERFACE_TYPE (4) + BusNumber (4)
+                if (pos + 4 > raw.Length) break;
+                uint partialCount = BitConverter.ToUInt32(raw, pos + 4); // Version(2)+Revision(2) first
+                pos += 8;
+
+                for (uint i = 0; i < partialCount && pos + 20 <= raw.Length; i++)
+                {
+                    byte type = raw[pos];
+                    ulong start = BitConverter.ToUInt64(raw, pos + 8);
+                    uint lenRaw = BitConverter.ToUInt32(raw, pos + 16);
+
+                    ulong size = type switch
+                    {
+                        3 => lenRaw, // CmResourceTypeMemory: length in bytes
+                        7 => (lenRaw >> 24) switch // CmResourceTypeMemoryLarge: high byte = granularity
+                        {
+                            0 => 4UL * 1024 * 1024,
+                            1 => 1024UL * 1024 * 1024,
+                            2 => 2UL * 1024 * 1024 * 1024,
+                            _ => 0UL
+                        } * (lenRaw & 0xFFFFFF),
+                        _ => 0UL
+                    };
+
+                    if (size > 0 && start >= 0x100000000UL && size > maxAbove)
+                        maxAbove = size;
+                    pos += 20; // sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR)
+                }
+            }
+            return maxAbove;
+        }
+        catch
+        {
+            return null;
         }
     }
 

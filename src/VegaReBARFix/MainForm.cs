@@ -259,7 +259,8 @@ public sealed class MainForm : Form
                 Location = new Point(R(14), R(24) + _cards.Count * R(26)),
                 AutoSize = true,
                 Checked = check,
-                Text = $"{a.KeyName} — {a.DriverDesc} [{a.MatchingDeviceId}] • {a.VramText}" +
+                // "&&" so the device-ID ampersands are not eaten as accelerator prefixes
+                Text = $"{a.KeyName} — {a.DriverDesc} [{a.MatchingDeviceId.Replace("&", "&&")}] • {a.VramText}" +
                        (isActive ? L10n.T("  • ACTIVE", "  • АКТИВНАЯ") : L10n.T("  • stale key", "  • неактивный ключ"))
             };
             cb.CheckedChanged += (_, _) => SaveExclusions();
@@ -373,19 +374,36 @@ public sealed class MainForm : Form
         _chkAutostart.Location = new Point(R(14), R(24));
         _chkAutoPatch.Location = new Point(R(14), R(50));
 
-        // Value column starts after the widest auto-sized caption; ⓘ icons sit
-        // at the right edge of their row.
+        // Value column starts after the widest auto-sized caption; each ⓘ icon
+        // sits right after ITS caption so the attribution is unambiguous.
         int valueX = R(140);
         foreach (var row in _rows)
+        {
+            row.Cap.Location = new Point(R(12), R(row.BaseY));
             valueX = Math.Max(valueX, row.Cap.Right + R(10));
+        }
         foreach (var row in _rows)
             row.Val.SetBounds(valueX, R(row.BaseY),
-                Math.Max(R(120), _gbDiag.ClientSize.Width - valueX - R(36)), R(row.BaseH));
+                Math.Max(R(120), _gbDiag.ClientSize.Width - valueX - R(12)), R(row.BaseH));
 
+        PlaceInfoIcon(_infoPatch, _capPatch);
+        PlaceInfoIcon(_infoBar, _capBar);
+        PlaceInfoIcon(_infoVbios, _capVbios);
         _lnkRebarUefi.SetBounds(valueX, R(152), 0, 0);
-        PlaceInfoIcon(_infoPatch, _lblPatch);
-        PlaceInfoIcon(_infoBar, _lblBar);
-        PlaceInfoIcon(_infoVbios, _lblVbios);
+
+        // Card rows: checkbox auto-sizes, the patch-state label follows its right edge.
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            var (_, cb, state) = _cards[i];
+            cb.Location = new Point(R(14), R(24) + i * R(26));
+            state.Location = new Point(cb.Right + R(12), R(24) + i * R(26) + R(2));
+        }
+    }
+
+    /// <summary>The ⓘ icon goes immediately after its caption text.</summary>
+    private void PlaceInfoIcon(Label icon, Label caption)
+    {
+        icon.SetBounds(caption.Right + R(4), caption.Top - R(1), R(20), R(18));
     }
 
     /// <summary>Single-line status row; the full explanation lives behind the ⓘ icon.</summary>
@@ -394,6 +412,7 @@ public sealed class MainForm : Form
         caption = new Label
         {
             AutoSize = true,
+            Location = new Point(R(12), R(baseY)),
             TextAlign = ContentAlignment.MiddleLeft
         };
         var val = new Label
@@ -429,11 +448,6 @@ public sealed class MainForm : Form
         };
         _gbDiag.Controls.Add(icon);
         return icon;
-    }
-
-    private void PlaceInfoIcon(Label icon, Label valueLabel)
-    {
-        icon.SetBounds(_gbDiag.ClientSize.Width - R(28), valueLabel.Bottom - R(18), R(20), R(18));
     }
 
     private static string AdapterTitle()
