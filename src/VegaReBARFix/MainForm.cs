@@ -22,6 +22,7 @@ public sealed class MainForm : Form
     private Label _capPatch = null!, _capBar = null!, _capVbios = null!, _capDriver = null!, _capKey = null!;
     private Label _lblPatch = null!, _lblBar = null!, _lblVbios = null!, _lblDriver = null!, _lblKey = null!;
     private Label _lblFooter = null!, _lblLang = null!;
+    private LinkLabel _lnkRebarUefi = null!;
     private ComboBox _langCombo = null!;
 
     private Button _btnPatch = null!, _btnUndo = null!, _btnRefresh = null!, _btnReboot = null!;
@@ -32,6 +33,8 @@ public sealed class MainForm : Form
     private (Label Cap, Label Val, int BaseY, int BaseH)[] _rows = null!;
 
     private BarStatus _bar = new(0, 0, null);
+    private string? _lastVbiosId;
+    private bool _fastStartupHintShown;
     private int _barAgeSeconds = int.MaxValue;   // hardware check runs on demand + every 30 s
     private bool _busy;
     private bool _suppressAutoEvents;
@@ -58,6 +61,26 @@ public sealed class MainForm : Form
         _lblVbios  = AddDiagRow(out _capVbios,  baseY: 92, baseH: 34, wrap: true);
         _lblDriver = AddDiagRow(out _capDriver, baseY: 128, baseH: 18, wrap: false);
         _lblKey    = AddDiagRow(out _capKey,    baseY: 150, baseH: 18, wrap: false);
+
+        _lnkRebarUefi = new LinkLabel
+        {
+            AutoSize = true,
+            LinkColor = Color.FromArgb(0, 100, 190),
+            Text = L10n.T("ReBarUEFI — board-firmware mod (opens GitHub)", "ReBarUEFI — мод прошивки платы (откроется GitHub)")
+        };
+        _lnkRebarUefi.Click += (_, _) =>
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "https://github.com/xCuri0/ReBarUEFI",
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex) { Log(L10n.T("Failed to open the link: ", "Не удалось открыть ссылку: ") + ex.Message); }
+        };
+        _gbDiag.Controls.Add(_lnkRebarUefi);
 
         _gbActions = new GroupBox();
         _btnPatch = new Button();
@@ -208,6 +231,7 @@ public sealed class MainForm : Form
         _chkAutoPatch.Text = L10n.T("Patch automatically if wiped after an update",
                                     "Автоматически патчить, если слетело после обновления");
         _lblLang.Text = L10n.T("Language:", "Язык:");
+        _lnkRebarUefi.Text = L10n.T("ReBarUEFI — board-firmware mod (opens GitHub)", "ReBarUEFI — мод прошивки платы (откроется GitHub)");
         _lblFooter.Text = "Vega-ReBAR-Fix v" + CleanVersion() + "  •  " + AdapterTitle();
         RefreshStatus(forceBar: false);
         LayoutAll();
@@ -230,7 +254,7 @@ public sealed class MainForm : Form
         int W = ClientSize.Width, H = ClientSize.Height;
         int x = R(12), w = W - 2 * R(12);
 
-        _gbDiag.SetBounds(x, R(12), w, R(178));
+        _gbDiag.SetBounds(x, R(12), w, R(198));
         _gbActions.SetBounds(x, _gbDiag.Bottom + R(8), w, R(64));
         _gbAuto.SetBounds(x, _gbActions.Bottom + R(8), w, R(84));
         _log.SetBounds(x, _gbAuto.Bottom + R(8), w, Math.Max(R(60), H - _gbAuto.Bottom - R(8) - R(42)));
@@ -256,6 +280,8 @@ public sealed class MainForm : Form
         foreach (var row in _rows)
             row.Val.SetBounds(valueX, R(row.BaseY),
                 Math.Max(R(120), _gbDiag.ClientSize.Width - valueX - R(12)), R(row.BaseH));
+
+        _lnkRebarUefi.SetBounds(valueX, R(172), 0, 0);
     }
 
     /// <summary>Caption auto-sizes to its text; the value column starts at a shared X.
@@ -317,6 +343,23 @@ public sealed class MainForm : Form
                 false => Bad,
                 _ => Caution
             };
+            _lnkRebarUefi.Visible = vbios.Supported != true;
+
+            // The driver re-reads the ROM from the card at every real power-on,
+            // so a changed ID means the machine cold-booted into another ROM.
+            if (_lastVbiosId is not null && best?.BiosId is not null && best.BiosId != _lastVbiosId)
+                Log(L10n.T(
+                    $"vBIOS changed: {_lastVbiosId} -> {best.BiosId} (the card cold-booted into another ROM).",
+                    $"vBIOS изменился: {_lastVbiosId} -> {best.BiosId} (карта загрузилась с другой прошивки)."));
+            _lastVbiosId = best?.BiosId;
+
+            if (vbios.Supported != true && PowerConfig.FastStartupEnabled && !_fastStartupHintShown)
+            {
+                _fastStartupHintShown = true;
+                Log(L10n.T(
+                    "Fast Startup is ON: \"Shut down\" hibernates and the card keeps its old ROM. After flipping the Dual BIOS switch do a FULL power-off: shutdown /s /full /t 0, then power on.",
+                    "Включён Fast Startup: «Завершение работы» уходит в гибернацию, и карта продолжает со старым ROM. После переключения тумблера Dual BIOS сделайте ПОЛНОЕ выключение: shutdown /s /full /t 0, затем включите ПК."));
+            }
 
             _lblDriver.Text = best is null ? "—" : $"{best.DriverVersion}  ({best.DriverDate})";
             _lblDriver.ForeColor = SystemColors.ControlText;

@@ -45,32 +45,51 @@ public sealed record BarStatus(ulong LargestAbove4Gb, ulong LargestBelow4Gb, str
 }
 
 /// <summary>
-/// vBIOS verdict. The PCIe Resizable BAR capability itself lives in the card's
-/// ROM and is not readable from user mode, so the verdict is honest:
-/// a resized BAR (hardware check) proves support; AMD reference stock Vega 10
-/// ROMs (IDs "113-D05...") are known to ship without ReBAR flags; anything
-/// else stays undetermined until a reboot proves it one way or the other.
+/// vBIOS verdict. The ROM ID comes from the driver key (what the driver read
+/// from the card at this boot); the verdict combines the hardware evidence
+/// (a resized BAR is hard proof of support) with the community ROM knowledge
+/// base. Verdicts re-compute live, so a cold-boot into a different Dual-BIOS
+/// ROM flips the row without restarting the tool.
 /// </summary>
-public sealed record VbiosStatus(string BiosId, bool? Supported)
+public sealed record VbiosStatus(string BiosId, bool? Supported, string? Hint = null)
 {
     public static VbiosStatus Create(string? biosId, bool barActive)
     {
-        if (barActive) return new VbiosStatus(biosId ?? "—", true);
-        if (!string.IsNullOrEmpty(biosId) && biosId.StartsWith("113-D05", StringComparison.OrdinalIgnoreCase))
-            return new VbiosStatus(biosId, false);
-        return new VbiosStatus(biosId ?? "—", null);
+        var (verdict, known) = VbiosKnowledgeBase.Lookup(biosId);
+
+        // Hard evidence wins: the BAR actually resized -> this ROM supports ReBAR.
+        if (barActive)
+            return new VbiosStatus(biosId ?? "—", true, L10n.T(
+                "proven: the BAR is resized on this ROM",
+                "доказано: BAR ресайзнут на этой прошивке"));
+
+        if (biosId is null)
+            return new VbiosStatus("—", null, null);
+
+        switch (verdict)
+        {
+            case VbiosKnowledgeBase.Verdict.StockNoRebar:
+                return new VbiosStatus(biosId, false, L10n.T(
+                    "stock ROM without ReBAR: the patch will not take effect until the card runs a ReBAR-capable BIOS (switch via Dual BIOS, then FULL power-off) or ReBarUEFI is added to the board",
+                    "стоковый ROM без ReBAR: патч не сработает, пока не переведёте карту на BIOS с ReBAR (тумблер Dual BIOS + полное выключение) или не добавите ReBarUEFI"));
+            default:
+                return new VbiosStatus(biosId, null, L10n.T(
+                    "ROM not in the knowledge base: check the board BIOS; if it is enabled, a vBIOS with ReBAR is required",
+                    "прошивки нет в базе: проверьте BIOS платы; если включён, нужен vBIOS с ReBAR"));
+        }
     }
 
-    public string Describe() => Supported switch
-    {
-        true => $"{BiosId} — {L10n.T("supports ReBAR", "поддерживает ReBAR")}",
-        false => $"{BiosId} — {L10n.T(
-            "no ReBAR (stock ROM): the patch will not take effect until the card runs a ReBAR-capable BIOS (switch via Dual BIOS) or ReBarUEFI is added to the board",
-            "без ReBAR (стоковый ROM): патч не сработает, пока не переведёте карту на BIOS с ReBAR (второй чип Dual BIOS) или не добавите ReBarUEFI")}",
-        _ => $"{BiosId} — {L10n.T(
-            "not determined: BAR not resized — check the board BIOS; if it is enabled, a vBIOS with ReBAR is required",
-            "не определён: BAR не ресайзнут — проверьте BIOS платы; если включён, нужен vBIOS с ReBAR")}"
-    };
+    public string Describe() => Hint is null ? BiosId : $"{BiosId} — {Hint}";
+}
+
+public static class PowerConfig
+{
+    /// <summary>Fast Startup (hiberboot) makes "Shut down" hibernate instead of a
+    /// real power-off, so the card never re-reads its Dual-BIOS ROM. Enabled = 1.</summary>
+    public static bool FastStartupEnabled =>
+        Microsoft.Win32.Registry.GetValue(
+            @"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Power",
+            "HiberbootEnabled", 0) is int i && i == 1;
 }
 
 /// <summary>

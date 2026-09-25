@@ -66,6 +66,10 @@ internal static class Program
             Console.WriteLine($"{L10n.T("BAR:", "BAR:")}     {bar.Describe()}");
             var vbios = VbiosStatus.Create(best.BiosId, bar.Active);
             Console.WriteLine($"{L10n.T("vBIOS:", "vBIOS:")}   {vbios.Describe()}");
+            if (vbios.Supported != true && PowerConfig.FastStartupEnabled)
+                Console.WriteLine(L10n.T(
+                    "         Fast Startup is ON: after flipping the card's Dual BIOS switch do a FULL power-off (shutdown /s /full /t 0), then power on.",
+                    "         Fast Startup включён: после переключения тумблера Dual BIOS сделайте ПОЛНОЕ выключение (shutdown /s /full /t 0), затем включите ПК."));
             Console.WriteLine($"{L10n.T("Driver:", "Драйвер:")} {best.DriverVersion} ({best.DriverDate})");
             Console.WriteLine(bar.Active && reg.Patched
                 ? L10n.T("RESULT: ReBAR is active.", "ИТОГ: ReBAR активен.")
