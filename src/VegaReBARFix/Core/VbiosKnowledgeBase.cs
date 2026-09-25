@@ -22,18 +22,16 @@ public static class VbiosKnowledgeBase
     }
 
     /// <summary>
-    /// Known table. Stock AMD reference ROMs ship without the PCIe ReBAR
-    /// capability (GPU-Z: "GPU hardware support: Unsupported"). Modded ROMs
-    /// from the TechPowerUp vBIOS collection keep the reference ID unless
-    /// reflashed with a custom string — a resized BAR is the only hard proof.
+    /// Known table. Verdicts are conservative: the Guru3D unlock author ran the
+    /// trio on 100% stock motherboard BIOS + stock vBIOS with success, and says
+    /// GPU-Z's "GPU hardware support" row is ignorable — so a stock ROM is NOT
+    /// proven to block ReBAR. A resized BAR is the only hard evidence either way.
     /// </summary>
     public static readonly Entry[] Known =
     [
-        new("113-D050", "Radeon RX Vega 56 (reference)", Verdict.StockNoRebar,
-            "TechPowerUp: stock Vega 10 ROMs ship without ReBAR capability"),
-        new("113-D046", "Radeon RX Vega 64 (reference)", Verdict.StockNoRebar,
-            "TechPowerUp: stock Vega 10 ROMs ship without ReBAR capability"),
-        new("113-D001", "Radeon RX Vega 56/64 (Sapphire early)", Verdict.StockNoRebar,
-            "Community reports: Sapphire reference-based stock ROM"),
+        new("113-D050", "Radeon RX Vega 56 (reference/Sapphire stock)", Verdict.Unknown,
+            "stock ROM; Guru3D reports the trio working on stock vBIOS — check the board BIOS first"),
+        new("113-D046", "Radeon RX Vega 64 (reference stock)", Verdict.Unknown,
+            "stock ROM; Guru3D reports the trio working on stock vBIOS — check the board BIOS first"),
     ];
 }

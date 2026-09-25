@@ -74,8 +74,8 @@ public sealed record VbiosStatus(string BiosId, bool? Supported, string? Hint = 
                     "стоковый ROM без ReBAR: патч не сработает, пока не переведёте карту на BIOS с ReBAR (тумблер Dual BIOS + полное выключение) или не добавите ReBarUEFI"));
             default:
                 return new VbiosStatus(biosId, null, L10n.T(
-                    "ROM not in the knowledge base: check the board BIOS; if it is enabled, a vBIOS with ReBAR is required",
-                    "прошивки нет в базе: проверьте BIOS платы; если включён, нужен vBIOS с ReBAR"));
+                    "not determined: BAR not resized — check the board BIOS (Above 4G Decoding / Re-Size BAR / CSM off). Per Guru3D the trio works even on stock vBIOS, so a ReBAR-capable ROM or ReBarUEFI is only the fallback",
+                    "не определён: BAR не ресайзнут — проверьте BIOS платы (Above 4G Decoding / Re-Size BAR / CSM off). По данным Guru3D триплет работает и на стоковом vBIOS — ROM с ReBAR или ReBarUEFI лишь запасной вариант"));
         }
     }
 

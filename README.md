@@ -83,9 +83,9 @@ The interface language is English by default; on Russian-language Windows the to
 | *Registry patch* red after an update | Press **Patch** again (or let the autostart guard do it) + reboot |
 | Flags wiped even between updates | Adrenalin rewrites them when its own settings change — keep the autostart guard enabled |
 | *BAR above 4 GB* red after reboot | Check BIOS: Above 4G Decoding = Enabled, Re-Size BAR = Enabled/Auto, CSM = Disabled |
-| BIOS is right, still red | The card's vBIOS likely lacks the PCIe ReBAR capability — stock Vega ROMs (e.g. `113-D0500350`) ship with the ReBAR capability flags **unset**, and GPU-Z shows "GPU hardware support: Unsupported". Two firmware-side routes: [ReBarUEFI](https://github.com/xCuri0/ReBarUEFI) (adds a ReBarDxe module to the board's UEFI; flashing a modded BIOS carries a brick risk) or a ReBAR-enabled vBIOS mod (Vega cards usually have a dual-BIOS switch) |
+| BIOS is right, still red | Re-check all three: `Above 4G Decoding` = Enabled, `Re-Size BAR Support` = Enabled/Auto, `CSM` = Disabled — the trio cannot act without them, and CMOS resets or "Load Optimized Defaults" quietly revert them. Per the [Guru3D unlock](https://forums.guru3d.com/threads/performance-for-free-unlocking-resizable-bar-for-unsupported-amd-gpus-polaris-vega-radeon-vii.445141) the trio works even on **stock vBIOS** with stock boards, so flashing is only a fallback: [ReBarUEFI](https://github.com/xCuri0/ReBarUEFI) or a ReBAR-enabled vBIOS mod |
 | Flipped the Dual-BIOS switch, ROM unchanged | **Fast Startup**: "Shut down" hibernates instead of a real power-off, so the card keeps its old ROM. Do a FULL power-off first: `shutdown /s /full /t 0`, then power on. If the vBIOS row still shows the old ID, the second ROM is stock too — flash a ReBAR-modded ROM onto it ([TechPowerUp vBIOS collection](https://www.techpowerup.com/vgabios/) has community ReBAR Vega mods) |
-| It "worked before" but shows red now | Earlier "enabled" was most likely GPU-Z reading the driver-level flags (see the known [GitHub issue](https://github.com/xCuri0/ReBarUEFI/issues/)), or the 256 MB BAR sitting above 4 GB due to Above-4G placement — placement, not an actual ReBAR resize. The tool counts ReBAR active only at ≥ 512 MB above 4 GB |
+| It "worked before" but shows red now | Very likely it is Above-4G placement that came and went: with `Above 4G Decoding` active the GPU BAR sits **above 4 GB** and Device Manager shows the large memory range — that looks like ReBAR but is not a resize. Also GPU-Z's "GPU hardware support: Unsupported" is [explicitly ignorable](https://forums.guru3d.com/threads/performance-for-free-unlocking-resizable-bar-for-unsupported-amd-gpus-polaris-vega-radeon-vii.445141) — the tool counts ReBAR active only at ≥ 512 MB above 4 GB |
 
 ## vBIOS knowledge base
 
@@ -195,9 +195,9 @@ dotnet publish src/VegaReBARFix -c Release -r win-x64 --self-contained true ^
 | *Патч реестра* красный после обновления | Нажать **Пропатчить** снова (или дождаться стража) + перезагрузка |
 | Флаги слетают даже между обновлениями | Adrenalin переписывает их при смене собственных настроек — держите страж автозапуска включённым |
 | *BAR выше 4 ГБ* красный после перезагрузки | Проверить BIOS: Above 4G Decoding = Enabled, Re-Size BAR = Enabled/Auto, CSM = Disabled |
-| BIOS верный, всё равно красный | Скорее всего, vBIOS карты не содержит ReBAR-возможность PCIe — стоковые ROM Vega (например, `113-D0500350`) идут с **невыставленными** флагами ReBAR, и GPU-Z показывает «GPU hardware support: Unsupported». Два пути на стороне прошивки: [ReBarUEFI](https://github.com/xCuri0/ReBarUEFI) (добавляет ReBarDxe в UEFI платы; прошивка модифицированного BIOS — риск брика) или vBIOS-мод с включённым ReBAR (у Vega обычно есть переключатель Dual BIOS) |
+| BIOS верный, всё равно красный | Перепроверьте все три пункта: `Above 4G Decoding` = Enabled, `Re-Size BAR Support` = Enabled/Auto, `CSM` = Disabled — без них триплет не может сработать, а сброс CMOS или «Load Optimized Defaults» тихо возвращает их в Off. По данным [Guru3D-unlock](https://forums.guru3d.com/threads/performance-for-free-unlocking-resizable-bar-for-unsupported-amd-gpus-polaris-vega-radeon-vii.445141) триплет работает даже на **стоковом vBIOS** и стоковых платах, поэтому прошивка — лишь запасной вариант: [ReBarUEFI](https://github.com/xCuri0/ReBarUEFI) или vBIOS-мод с ReBAR |
 | Переключил тумблер Dual BIOS, а ROM не меняется | **Fast Startup**: «Завершение работы» уходит в гибернацию вместо настоящего выключения — карта продолжает со старым ROM. Сделайте ПОЛНОЕ выключение: `shutdown /s /full /t 0`, затем включите ПК. Если строка vBIOS показывает старый ID — на втором тумблере тоже стоковая прошивка; прошейте на него ROM с ReBAR ([коллекция vBIOS TechPowerUp](https://www.techpowerup.com/vgabios/), есть community-моды Vega) |
-| «Раньше работало», теперь красный | Раньше «включено» — это скорее всего GPU-Z, читавший флаги на уровне драйвера (известная [проблема](https://github.com/xCuri0/ReBarUEFI/issues/)), или BAR 256 МБ, размещённый выше 4 ГБ благодаря Above-4G, — размещение, а не настоящий ресайз. Утилита считает ReBAR активным только при ≥ 512 МБ выше 4 ГБ |
+| «Раньше работало», теперь красный | Скорее всего, приходило и уходило Above-4G-размещение: при включённом `Above 4G Decoding` BAR GPU лежит **выше 4 ГБ**, и Диспетчер устройств показывает большой диапазон — выглядит как ReBAR, но ресайзом не является. А «GPU hardware support: Unsupported» в GPU-Z [можно игнорировать](https://forums.guru3d.com/threads/performance-for-free-unlocking-resizable-bar-for-unsupported-amd-gpus-polaris-vega-radeon-vii.445141) — утилита считает ReBAR активным только при ≥ 512 МБ выше 4 ГБ |
 
 ## База знаний vBIOS
 
@@ -205,8 +205,8 @@ dotnet publish src/VegaReBARFix -c Release -r win-x64 --self-contained true ^
 
 | Префикс ID ROM | Карта | ReBAR |
 |---|---|---|
-| `113-D050…` | Radeon RX Vega 56 (reference) | ❌ сток, нет возможности |
-| `113-D046…` | Radeon RX Vega 64 (reference) | ❌ сток, нет возможности |
+| `113-D050…` | Radeon RX Vega 56 (reference/Sapphire stock) | ❔ сток; по Guru3D триплет работает и на нём |
+| `113-D046…` | Radeon RX Vega 64 (reference stock) | ❔ сток; по Guru3D триплет работает и на нём |
 | любой + **BAR ресайзнут ≥ 512 МБ выше 4 ГБ** | любая | ✅ доказано |
 
 **Помогите собрать базу:** если ReBAR работает на вашей карте, [откройте Issue](../../issues) с выводом `VegaReBARFix.exe -status` — строка vBIOS попадёт в таблицу и в следующий релиз.
