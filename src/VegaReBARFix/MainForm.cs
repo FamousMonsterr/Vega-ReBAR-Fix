@@ -27,9 +27,12 @@ public sealed class MainForm : Form
     private ComboBox _langCombo = null!;
     private readonly List<(AdapterInfo Info, CheckBox Cb, Label State)> _cards = new();
 
-    private Button _btnPatch = null!, _btnUndo = null!, _btnRefresh = null!, _btnReboot = null!;
+    private Button _btnPatch = null!, _btnUndo = null!, _btnForce = null!, _btnRefresh = null!, _btnReboot = null!;
     private CheckBox _chkAutostart = null!, _chkAutoPatch = null!;
     private TextBox _log = null!;
+    private ToolTip _tip = null!;
+    private Label _infoPatch = null!, _infoBar = null!, _infoVbios = null!;
+    private string _fullPatch = "", _fullBar = "", _fullVbios = "";
 
     /// <summary>Caption/value pairs with their 96-DPI design geometry (base Y, base height).</summary>
     private (Label Cap, Label Val, int BaseY, int BaseH)[] _rows = null!;
@@ -58,11 +61,15 @@ public sealed class MainForm : Form
                       "Vega-ReBAR-Fix — ReBAR (SAM) для AMD Vega/Polaris");
 
         _gbDiag = new GroupBox();
-        _lblPatch  = AddDiagRow(out _capPatch,  baseY: 24, baseH: 18, wrap: false);
-        _lblBar    = AddDiagRow(out _capBar,    baseY: 56, baseH: 34, wrap: true);
-        _lblVbios  = AddDiagRow(out _capVbios,  baseY: 92, baseH: 34, wrap: true);
-        _lblDriver = AddDiagRow(out _capDriver, baseY: 128, baseH: 18, wrap: false);
-        _lblKey    = AddDiagRow(out _capKey,    baseY: 150, baseH: 18, wrap: false);
+        _lblPatch  = AddDiagRow(out _capPatch,  baseY: 24, wrap: false);
+        _lblBar    = AddDiagRow(out _capBar,    baseY: 50, wrap: false);
+        _lblVbios  = AddDiagRow(out _capVbios,  baseY: 76, wrap: false);
+        _lblDriver = AddDiagRow(out _capDriver, baseY: 102, wrap: false);
+        _lblKey    = AddDiagRow(out _capKey,    baseY: 128, wrap: false);
+        _tip = new ToolTip { InitialDelay = 200, AutoPopDelay = 30000 };
+        _infoPatch = AddInfoIcon(_lblPatch);
+        _infoBar   = AddInfoIcon(_lblBar);
+        _infoVbios = AddInfoIcon(_lblVbios);
 
         _lnkRebarUefi = new LinkLabel
         {
@@ -91,6 +98,7 @@ public sealed class MainForm : Form
         _gbActions = new GroupBox();
         _btnPatch = new Button();
         _btnUndo  = new Button();
+        _btnForce = new Button();
         _btnRefresh = new Button();
         _btnReboot = new Button { Enabled = false };
         _btnPatch.Click += (_, _) => RunGuarded(() =>
@@ -98,6 +106,15 @@ public sealed class MainForm : Form
             var targets = SelectedAdapters();
             var (ok, msg) = Patcher.PatchAll(targets);
             Log(msg);
+            if (ok) _btnReboot.Enabled = true;
+        });
+        // Unconditional: patches EVERY AMD adapter key found, whatever the
+        // current state or the checkboxes say — for "just make sure" moments
+        // after BIOS changes / re-enumerations.
+        _btnForce.Click += (_, _) => RunGuarded(() =>
+        {
+            var (ok, msg) = Patcher.PatchAll(AdapterLocator.FindAllAmdAdapters());
+            Log(L10n.T("Force patch (every AMD key, ignoring state): ", "Принудительный патч (все ключи AMD, безусловно): ") + msg);
             if (ok) _btnReboot.Enabled = true;
         });
         _btnUndo.Click += (_, _) => RunGuarded(() =>
@@ -121,7 +138,7 @@ public sealed class MainForm : Form
             }
             catch (Exception ex) { Log(L10n.T("Failed to start reboot: ", "Не удалось запустить перезагрузку: ") + ex.Message); }
         };
-        _gbActions.Controls.AddRange(new Control[] { _btnPatch, _btnUndo, _btnRefresh, _btnReboot });
+        _gbActions.Controls.AddRange(new Control[] { _btnPatch, _btnUndo, _btnForce, _btnRefresh, _btnReboot });
 
         _gbAuto = new GroupBox();
         _chkAutostart = new CheckBox { Location = new Point(R(14), R(24)), AutoSize = true };
@@ -303,6 +320,7 @@ public sealed class MainForm : Form
         _gbActions.Text = L10n.T("Actions", "Действия");
         _btnPatch.Text = L10n.T("Patch", "Пропатчить");
         _btnUndo.Text = L10n.T("Undo", "Откатить");
+        _btnForce.Text = L10n.T("Force", "Принудительно");
         _btnRefresh.Text = L10n.T("Refresh", "Обновить");
         _btnReboot.Text = L10n.T("Reboot PC", "Перезагрузить ПК");
         _gbAuto.Text = L10n.T("Autostart", "Автозапуск");
@@ -335,7 +353,7 @@ public sealed class MainForm : Form
         int x = R(12), w = W - 2 * R(12);
         int cardsH = R(24 + 26 * Math.Max(_cards.Count, 1) + 10);
 
-        _gbDiag.SetBounds(x, R(12), w, R(198));
+        _gbDiag.SetBounds(x, R(12), w, R(176));
         _gbCards.SetBounds(x, _gbDiag.Bottom + R(8), w, cardsH);
         _gbActions.SetBounds(x, _gbCards.Bottom + R(8), w, R(64));
         _gbAuto.SetBounds(x, _gbActions.Bottom + R(8), w, R(84));
@@ -347,28 +365,31 @@ public sealed class MainForm : Form
 
         _btnPatch.SetBounds(R(14), R(24), R(118), R(30));
         _btnUndo.SetBounds(R(140), R(24), R(98), R(30));
-        _btnRefresh.SetBounds(R(246), R(24), R(98), R(30));
+        _btnForce.SetBounds(R(246), R(24), R(112), R(30));
+        _btnRefresh.SetBounds(R(366), R(24), R(98), R(30));
         _btnReboot.Size = new Size(R(126), R(30));
         _btnReboot.Location = new Point(_gbActions.ClientSize.Width - R(12) - _btnReboot.Width, R(24));
 
         _chkAutostart.Location = new Point(R(14), R(24));
         _chkAutoPatch.Location = new Point(R(14), R(50));
 
-        // Value column starts after the widest auto-sized caption, so rows align
-        // and captions can never clip, at any DPI.
+        // Value column starts after the widest auto-sized caption; ⓘ icons sit
+        // at the right edge of their row.
         int valueX = R(140);
         foreach (var row in _rows)
             valueX = Math.Max(valueX, row.Cap.Right + R(10));
         foreach (var row in _rows)
             row.Val.SetBounds(valueX, R(row.BaseY),
-                Math.Max(R(120), _gbDiag.ClientSize.Width - valueX - R(12)), R(row.BaseH));
+                Math.Max(R(120), _gbDiag.ClientSize.Width - valueX - R(36)), R(row.BaseH));
 
-        _lnkRebarUefi.SetBounds(valueX, R(172), 0, 0);
+        _lnkRebarUefi.SetBounds(valueX, R(152), 0, 0);
+        PlaceInfoIcon(_infoPatch, _lblPatch);
+        PlaceInfoIcon(_infoBar, _lblBar);
+        PlaceInfoIcon(_infoVbios, _lblVbios);
     }
 
-    /// <summary>Caption auto-sizes to its text; the value column starts at a shared X.
-    /// Long rows (wrap: true) are two lines tall and wrap instead of clipping.</summary>
-    private Label AddDiagRow(out Label caption, int baseY, int baseH, bool wrap)
+    /// <summary>Single-line status row; the full explanation lives behind the ⓘ icon.</summary>
+    private Label AddDiagRow(out Label caption, int baseY, bool wrap)
     {
         caption = new Label
         {
@@ -379,16 +400,40 @@ public sealed class MainForm : Form
         {
             AutoSize = false,
             TextAlign = ContentAlignment.MiddleLeft,
-            AutoEllipsis = !wrap,           // wrapping rows show their full text on two lines
+            AutoEllipsis = true,
             Text = "…"
         };
-        gbAdd(caption);
-        gbAdd(val);
+        _gbDiag.Controls.Add(caption);
+        _gbDiag.Controls.Add(val);
         _rows = (_rows ?? Array.Empty<(Label, Label, int, int)>())
-            .Append((caption, val, baseY, baseH)).ToArray();
+            .Append((caption, val, baseY, 18)).ToArray();
         return val;
+    }
 
-        void gbAdd(Control c) => _gbDiag.Controls.Add(c);
+    private Label AddInfoIcon(Label valueLabel)
+    {
+        var icon = new Label
+        {
+            Text = "ⓘ",
+            AutoSize = false,
+            Size = new Size(R(20), R(18)),
+            Cursor = Cursors.Hand,
+            ForeColor = SystemColors.GrayText,
+            TextAlign = ContentAlignment.MiddleCenter
+        };
+        icon.Click += (_, _) =>
+        {
+            var text = icon == _infoPatch ? _fullPatch : icon == _infoBar ? _fullBar : _fullVbios;
+            MessageBox.Show(this, text, L10n.T("Details", "Подробнее"),
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        };
+        _gbDiag.Controls.Add(icon);
+        return icon;
+    }
+
+    private void PlaceInfoIcon(Label icon, Label valueLabel)
+    {
+        icon.SetBounds(_gbDiag.ClientSize.Width - R(28), valueLabel.Bottom - R(18), R(20), R(18));
     }
 
     private static string AdapterTitle()
@@ -426,13 +471,21 @@ public sealed class MainForm : Form
                     ? L10n.T($"enabled ({selected} key{(selected == 1 ? "" : "s")})", $"включен ({selected} ключ(ей))")
                     : L10n.T("wiped on some keys — see 'Cards to patch'", "слетел на части ключей — см. «Карты для патча»");
             _lblPatch.ForeColor = allPatched ? Good : Bad;
+            _fullPatch = L10n.T(
+                $"Registry trio KMD_RebarControlMode / KMD_RebarControlSupport / KMD_EnableReBarForLegacyASIC (=1) on every selected adapter key. Without all three the driver ignores ReBAR on Vega/Polaris. Windows Update and driver reinstalls recreate the key without them — the autostart guard re-applies at sign-in.",
+                "Триплет KMD_RebarControlMode / KMD_RebarControlSupport / KMD_EnableReBarForLegacyASIC (=1) на каждом выбранном ключе адаптера. Без всех трёх драйвер игнорирует ReBAR на Vega/Polaris. Обновления Windows и переустановки драйвера пересоздают ключ без них — страж автозапуска восстанавливает при входе.");
+            _tip.SetToolTip(_infoPatch, _fullPatch);
 
             if (forceBar) { _bar = RebarStatus.ReadBars(); _barAgeSeconds = 0; }
-            _lblBar.Text = _bar.Describe();
+            _lblBar.Text = _bar.DescribeShort();
             _lblBar.ForeColor = _bar.Error is not null ? Unknown : _bar.Active ? Good : Bad;
+            _fullBar = _bar.Describe() + L10n.T(
+                "\n\nReBAR counts as active only when a GPU BAR of at least 512 MB is actually mapped above the 4 GB line. A 256 MB BAR above 4 GB is Above-4G placement (already fine); the resize itself happens at driver start, so apply the patch and reboot.",
+                "\n\nReBAR считается активным, только если BAR GPU не меньше 512 МБ реально отображён выше границы 4 ГБ. BAR 256 МБ выше 4 ГБ — это размещение Above-4G (уже хорошо); сам ресайз происходит при старте драйвера, поэтому после патча нужна перезагрузка.");
+            _tip.SetToolTip(_infoBar, _fullBar);
 
             var vbios = VbiosStatus.Create(best?.BiosId, _bar.Active);
-            _lblVbios.Text = vbios.Describe();
+            _lblVbios.Text = vbios.DescribeShort();
             _lblVbios.ForeColor = vbios.Supported switch
             {
                 true => Good,
@@ -440,6 +493,10 @@ public sealed class MainForm : Form
                 _ => Caution
             };
             _lnkRebarUefi.Visible = vbios.Supported != true;
+            _fullVbios = vbios.Describe() + L10n.T(
+                "\n\nGPU-Z's 'GPU hardware support: Unsupported' is ignorable per the Guru3D unlock — the trio works on stock vBIOS. If the board BIOS is right and the BAR still does not resize, try the other Dual-BIOS ROM (full power-off!), then ReBarUEFI or a ReBAR-capable vBIOS mod.",
+                "\n\nСтроку «GPU hardware support: Unsupported» в GPU-Z можно игнорировать (по данным Guru3D-unlock) — триплет работает и на стоковом vBIOS. Если BIOS платы верный, а BAR не ресайзнется — попробуйте второй ROM Dual BIOS (с полным выключением!), затем ReBarUEFI или vBIOS-мод с ReBAR.");
+            _tip.SetToolTip(_infoVbios, _fullVbios);
 
             // The driver re-reads the ROM from the card at every real power-on,
             // so a changed ID means the machine cold-booted into another ROM.

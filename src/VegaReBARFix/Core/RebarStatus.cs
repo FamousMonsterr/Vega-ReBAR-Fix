@@ -15,6 +15,8 @@ public sealed record RegistryStatus(int? Mode, int? Support, int? Legacy)
         return $"{L10n.T("wiped:", "слетел:")} Mode={Show(Mode)}, Support={Show(Support)}, Legacy={Show(Legacy)}";
     }
 
+    public string DescribeShort() => Patched ? L10n.T("enabled", "включен") : L10n.T("wiped", "слетел");
+
     private static string Show(int? v) => v?.ToString() ?? L10n.T("absent", "нет");
 }
 
@@ -36,6 +38,14 @@ public sealed record BarStatus(ulong LargestAbove4Gb, ulong LargestBelow4Gb, str
                    L10n.T("below 4 GB — check BIOS or card vBIOS (see README)",
                           "ниже 4 ГБ — BIOS или vBIOS без ReBAR (см. README)");
         return L10n.T("not active: no GPU BAR found", "не активен: BAR GPU не найден");
+    }
+
+    public string DescribeShort()
+    {
+        if (Error is not null) return L10n.T("unknown", "неизвестно");
+        if (Active) return $"{L10n.T("active", "активен")}: {Fmt(LargestAbove4Gb)}";
+        if (LargestAbove4Gb > 0) return $"{L10n.T("BAR not resized", "BAR не ресайзнут")} ({Fmt(LargestAbove4Gb)})";
+        return L10n.T("not active", "не активен");
     }
 
     public static string Fmt(ulong bytes) =>
@@ -80,6 +90,13 @@ public sealed record VbiosStatus(string BiosId, bool? Supported, string? Hint = 
     }
 
     public string Describe() => Hint is null ? BiosId : $"{BiosId} — {Hint}";
+
+    public string DescribeShort() => $"{BiosId} — " + Supported switch
+    {
+        true => L10n.T("supports ReBAR", "поддерживает ReBAR"),
+        false => L10n.T("no ReBAR", "без ReBAR"),
+        _ => L10n.T("not determined", "не определён")
+    };
 }
 
 public static class PowerConfig
